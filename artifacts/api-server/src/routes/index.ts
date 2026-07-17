@@ -35,6 +35,9 @@ import v4StageQuizzesRouter from "./v4_stage_quizzes";
 import v4QuizScoresRouter from "./v4_quiz_scores";
 import v4AdminStudentMonitorRouter from "./v4_admin_student_monitor";
 import v4VisualExplainRouter from "./v4_visual_explain";
+import pushNotificationsRouter from "./push_notifications";
+import adminFcmRouter from "./admin_fcm";
+import assetlinksRouter from "./assetlinks";
 
 const router: IRouter = Router();
 
@@ -74,5 +77,8 @@ router.use(v4StageQuizzesRouter);
 router.use(v4QuizScoresRouter);
 router.use(v4AdminStudentMonitorRouter);
 router.use(v4VisualExplainRouter);
+router.use(pushNotificationsRouter);
+router.use(adminFcmRouter);
+router.use(assetlinksRouter);
 
 export default router;

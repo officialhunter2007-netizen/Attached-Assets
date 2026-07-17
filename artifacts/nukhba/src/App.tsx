@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "./lib/auth-context";
 import { LangProvider } from "./lib/lang-context";
 import { useAuth } from "./lib/use-auth";
-import { useEffect, useState, Component, type ReactNode } from "react";
+import { useEffect, useState, Component, useRef, type ReactNode } from "react";
 import NotFound from "@/pages/not-found";
 
 import Home from "@/pages/home";
@@ -243,6 +243,75 @@ function Router() {
   );
 }
 
+/** Registers the service worker and subscribes the device to Web Push */
+function PushSetup() {
+  const { user } = useAuth();
+  const subscribedRef = useRef(false);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((err) =>
+      console.warn("[sw] registration failed:", err)
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!user || subscribedRef.current) return;
+
+    async function subscribe() {
+      try {
+        // Fetch VAPID public key from backend
+        const keyRes = await fetch("/api/push/vapid-public-key", { credentials: "include" });
+        const { publicKey } = await keyRes.json();
+        if (!publicKey) return; // VAPID not configured yet
+
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+
+        // Request permission if not already granted
+        if (Notification.permission === "denied") return;
+        if (Notification.permission === "default") {
+          const perm = await Notification.requestPermission();
+          if (perm !== "granted") return;
+        }
+
+        const subscription =
+          existing ??
+          (await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey),
+          }));
+
+        // Send subscription to backend with lightweight targeting metadata
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+          body: JSON.stringify({ subscription: subscription.toJSON(), meta: {} }),
+        });
+
+        subscribedRef.current = true;
+      } catch (err) {
+        console.warn("[push] subscribe failed:", err);
+      }
+    }
+
+    subscribe();
+  }, [user]);
+
+  return null;
+}
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -254,6 +323,7 @@ function App() {
               <WelcomeOfferModal />
               <WelcomeGiftModal />
               <ReferralGemsModal />
+              <PushSetup />
             </WouterRouter>
             <Toaster />
           </TooltipProvider>

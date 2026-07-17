@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- أيقونة دائرية احتياطية للأجهزة التي تعمل بـ API < 26 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- دائرة ذهبية -->
+    <path android:fillColor="#C8A94A"
+          android:pathData="M54,0 A54,54 0 1,1 53.99,0 Z"/>
+    <!-- حرف ن بالأبيض -->
+    <path android:fillColor="#FFFFFF"
+          android:pathData="M30,72 Q30,40 54,36 Q78,40 78,72 L72,72 Q72,46 54,42 Q36,46 36,72 Z
+                            M40,72 L40,60 L68,60 L68,72 L62,72 L62,66 L46,66 L46,72 Z"/>
+</vector>

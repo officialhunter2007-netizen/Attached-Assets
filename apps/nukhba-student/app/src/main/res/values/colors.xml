@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ذهبي نُخبة الرئيسي -->
+    <color name="colorPrimary">#C8A84B</color>
+    <color name="colorPrimaryDark">#A8883B</color>
+    <!-- خلفية داكنة -->
+    <color name="colorBackground">#0F0E1A</color>
+    <color name="colorSurface">#1A1929</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+</resources>

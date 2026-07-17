@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- بنفسجي الأدمن -->
+    <color name="colorPrimary">#7C3AED</color>
+    <color name="colorPrimaryDark">#6D28D9</color>
+    <color name="colorBackground">#0F0E1A</color>
+    <color name="colorSurface">#1A1929</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+</resources>

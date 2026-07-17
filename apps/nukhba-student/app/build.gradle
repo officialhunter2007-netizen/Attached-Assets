@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.learnukhba.student'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.learnukhba.student"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        release {
+            // GitHub Actions يقرأ هذه القيم من Environment Variables
+            // مصدرها GitHub Secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+            storeFile = System.getenv("KEYSTORE_PATH") ? file(System.getenv("KEYSTORE_PATH")) : null
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("KEY_ALIAS") ?: "nukhba-student"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig = System.getenv("KEYSTORE_PATH") ? signingConfigs.release : null
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Trusted Web Activity — يُشغّل الـ PWA داخل Chrome بشكل كامل
+    // (Service Worker + Push Notifications تعمل تلقائياً)
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+
+    // AppCompat ضروري للـ Theme
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}

@@ -1176,6 +1176,69 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "idx_v4_unit_stories_specialty_unit" ON "v4_unit_stories" ("specialty_id", "unit_code")`,
     ],
   },
+  {
+    // Web Push subscriptions — one row per (user, device endpoint).
+    // specialty_ids / skill_ids are JSONB arrays for targeted broadcasts.
+    table: "push_subscriptions",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "push_subscriptions" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "endpoint" text NOT NULL,
+        "p256dh" text NOT NULL DEFAULT '',
+        "auth" text NOT NULL DEFAULT '',
+        "specialty_ids" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "current_level" text,
+        "current_unit_code" text,
+        "skill_ids" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_push_subscriptions_user_endpoint" ON "push_subscriptions" ("user_id", "endpoint")`,
+      `CREATE INDEX IF NOT EXISTS "idx_push_subscriptions_user" ON "push_subscriptions" ("user_id")`,
+    ],
+  },
+  {
+    // Admin FCM tokens — one row per (admin_user, device_token).
+    // Used to send push notifications to admin Android devices when new
+    // subscription requests arrive, even when the app is not in the foreground.
+    table: "admin_fcm_tokens",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "admin_fcm_tokens" (
+        "id"         serial PRIMARY KEY,
+        "user_id"    integer NOT NULL,
+        "token"      text NOT NULL,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_admin_fcm_tokens_user_token" ON "admin_fcm_tokens" ("user_id", "token")`,
+      `CREATE INDEX IF NOT EXISTS "idx_admin_fcm_tokens_user" ON "admin_fcm_tokens" ("user_id")`,
+    ],
+  },
+  {
+    // Admin-sent push notification log — append-only history.
+    table: "notification_log",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "notification_log" (
+        "id" serial PRIMARY KEY,
+        "admin_id" integer NOT NULL,
+        "title" text NOT NULL,
+        "body" text NOT NULL DEFAULT '',
+        "url" text NOT NULL DEFAULT '/',
+        "target_filter" jsonb NOT NULL DEFAULT '{}'::jsonb,
+        "sent_count" integer NOT NULL DEFAULT 0,
+        "failed_count" integer NOT NULL DEFAULT 0,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_notification_log_admin" ON "notification_log" ("admin_id", "created_at")`,
+    ],
+  },
 ];
 
 // Best-effort: ensure the FTS index over `material_chunks.content_normalized`
@@ -1240,6 +1303,8 @@ const DEFAULT_PAYMENT_SETTINGS: Array<{
   { key: "kuraimi.north.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الشمال", category: "payment" },
   { key: "kuraimi.south.number", value: "3167076083",            label: "رقم حساب كريمي — الجنوب", category: "payment" },
   { key: "kuraimi.south.name",   value: "عمرو خالد عبد المولى", label: "اسم صاحب الحساب — الجنوب", category: "payment" },
+  { key: "jaib.number",          value: "",                      label: "رقم محفظة جيب",             category: "payment" },
+  { key: "jaib.name",            value: "",                      label: "اسم صاحب محفظة جيب",        category: "payment" },
   // AI charge rate — the single admin knob. "Gems per 1,000,000 teaching-model
   // tokens." Translated to the internal gems-per-USD constant in pricing-formula.
   {
@@ -1716,6 +1781,7 @@ const REQUIRED_COLUMNS: TableSpec[] = [
       { name: "region", ddl: "text" },
       { name: "activation_code", ddl: "text" },
       { name: "notes", ddl: "text" },
+      { name: "payment_method", ddl: "text NOT NULL DEFAULT 'kuraimi'" },
     ],
   },
   {

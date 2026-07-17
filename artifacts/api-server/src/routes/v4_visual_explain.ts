@@ -2,15 +2,13 @@
  * Visual Explain Route — POST /v4/visual-explain
  *
  * Generates a self-contained interactive Arabic HTML page that visually
- * explains a teacher message, using Gemini 2.5 Flash via OpenRouter.
+ * explains a teacher message, using OpenAI GPT-5 via GitHub Models API.
  *
  * Flow:
  *  1. Receive { message } from the student frontend
  *  2. Build a prompt with strict design specs + reference examples
- *  3. Call google/gemini-2.5-flash via OpenRouter
+ *  3. Call gpt-5 via GitHub Models (models.inference.ai.azure.com)
  *  4. Extract HTML from response and return { html }
- *
- * Replaces the old Playwright/manus.im approach entirely.
  */
 
 import { Router } from "express";
@@ -22,11 +20,10 @@ function getUserId(req: any): number | null {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const MANUS_API_BASE      = "https://api.manus.ai";
-const REQUEST_TIMEOUT_MS  = 8 * 60_000 + 30_000; // 8.5 min — Manus agent may take 5-8 min
-const POLL_INTERVAL_MS    = 5_000;
-const POLL_TIMEOUT_MS     = 8 * 60_000;           // 8 min poll deadline
-const MAX_MESSAGE_CHARS   = 5_000;
+const MORPHLLM_API_BASE = "https://openrouter.ai/api/v1";
+const MORPHLLM_MODEL    = "google/gemini-2.5-pro";
+const MORPHLLM_TIMEOUT  = 90_000; // 90 s — generous for a large HTML generation
+const MAX_MESSAGE_CHARS = 5_000;
 
 // ── Simple in-memory cache ────────────────────────────────────────────────────
 // Same teacher message → same HTML, no need to re-generate
@@ -37,561 +34,334 @@ function cacheKey(message: string): string {
 }
 
 // ── HTML extraction ───────────────────────────────────────────────────────────
-function extractHtml(text: string): string | null {
-  // 1. ```html ... ``` fenced block
-  const fenced = /```html\s*([\s\S]*?)```/i.exec(text);
-  if (fenced?.[1] && fenced[1].trim().length > 500) return fenced[1].trim();
+// Handles all response formats Gemini Flash Lite may produce:
+//   • Extended-thinking tags (<think>…</think> or <thinking>…</thinking>) before HTML
+//   • ```html … ``` fenced blocks (with or without "html" specifier)
+//   • Bare <!DOCTYPE html … </html>
+//   • <html … </html> without doctype
+//   • Truncated HTML (model hit max_tokens before </html>)
+function extractHtml(rawText: string): string | null {
+  // Strip extended-thinking blocks that Gemini may include before the HTML.
+  // These appear as <think>…</think> or <thinking>…</thinking> wrappers.
+  const text = rawText
+    .replace(/<think(?:ing)?[\s\S]*?<\/think(?:ing)?>/gi, "")
+    .trim();
 
-  // 2. Bare <!DOCTYPE html ... </html>
+  const MIN = 500; // minimum plausible HTML size
+
+  // 1. ```html … ``` fenced block (with "html" specifier)
+  const fencedHtml = /```html\s*([\s\S]*?)```/i.exec(text);
+  if (fencedHtml?.[1]?.trim().length > MIN) return fencedHtml[1].trim();
+
+  // 2. Generic ``` … ``` fenced block (model may omit the "html" tag)
+  const fencedAny = /```(?:\w*\s*)?\n?(<!DOCTYPE[\s\S]*?<\/html>)/i.exec(text);
+  if (fencedAny?.[1]?.trim().length > MIN) return fencedAny[1].trim();
+
+  // 3. Bare <!DOCTYPE html … </html>
   const bare = /<!DOCTYPE\s+html[\s\S]*?<\/html>/i.exec(text);
-  if (bare?.[0] && bare[0].length > 500) return bare[0].trim();
+  if (bare?.[0]?.length > MIN) return bare[0].trim();
 
-  // 3. <html ... </html> without doctype
+  // 4. <html … </html> without doctype
   const tag = /<html[\s\S]*?<\/html>/i.exec(text);
-  if (tag?.[0] && tag[0].length > 500) return tag[0].trim();
+  if (tag?.[0]?.length > MIN) return tag[0].trim();
+
+  // 5. Truncated — model hit token limit before </html>; recover everything
+  //    from <!DOCTYPE (or <html) to end-of-text, as long as it's substantial.
+  const partial = /(!DOCTYPE\s+html|<html\b)[\s\S]+/i.exec(text);
+  if (partial?.[0]?.length > MIN) return "<" + partial[0].trim();
 
   return null;
 }
 
-// ── System prompt ─────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `أنت معلم بصري متخصص في تحويل المفاهيم التقنية إلى تجارب بصرية حية باللغة العربية.
-
----
-
-## ═══════════════════════════════════════════════════
-## الفلسفة التعليمية الأساسية — اقرأها أولاً
-## ═══════════════════════════════════════════════════
-
-### القاعدة الذهبية: "الواقع أولاً، ثم التقنية"
-الطالب لا يعرف شيئاً — تخيّل أنك تشرح لشخص عمره 12 سنة لم يرَ كمبيوتراً في حياته.
-لا تبدأ بمصطلحات تقنية. ابدأ دائماً بمشهد من الحياة اليومية يتعرف عليه فوراً.
-
-### مسار الشرح الإلزامي:
-\`\`\`
-الخطوة 1 → مشهد حقيقي من الحياة (بيت، سيارة، مطبخ، مسجد، مكتبة...)
-الخطوة 2 → "تخيّل أن هذا الشيء يشبه تماماً..."  ← جسر الانتقال
-الخطوة 3-N → تحريك المشهد الحقيقي خطوة خطوة
-الخطوة الأخيرة → ربط المشهد بالكود/المفهوم التقني
-\`\`\`
-
-### أمثلة على التشبيهات الصحيحة:
-| المفهوم التقني | التشبيه الواقعي |
-|---|---|
-| حلقة for | ساعي بريد يوصّل رسائل لكل بيت في الشارع |
-| المتغير | طرد بريدي له اسم كُتب عليه + محتوى بداخله |
-| الدالة (function) | ماكينة بيع: تُدخل مال → تخرج منتج |
-| if/else | موظف أمن: تذكرة؟ ادخل. لا تذكرة؟ ارجع. |
-| المصفوفة (array) | رف خبّاز: 6 خانات مرقّمة، كل خانة فيها نوع خبز |
-| النظام الثنائي | مفاتيح كهرباء: مضاء=1، مطفأ=0 |
-| الـ Stack | برج أطباق: تضع فوق، تأخذ من فوق |
-| الـ Queue | طابور أمام دكّان: أول واحد دخل أول واحد يُخدَم |
-| الـ CPU | طاهٍ في مطبخ: وصفة → يُنفّذ خطوة خطوة |
-| الشبكة | بريد مادي: مرسِل → ظرف → طوابع → صندوق بريد → مستلم |
-| الـ RAM | طاولة العمل: تضع عليها الأشياء اللي تستخدمها الآن |
-| الذاكرة (HDD) | خزانة في الغرفة: مساحة أكبر، لكن أبطأ |
-
----
-
-## ═══════════════════════════════════════════════════
-## الممنوعات المطلقة (سبب الفشل في النسخ السابقة)
-## ═══════════════════════════════════════════════════
-
-❌ لا تبدأ بـ "Node A → Node B → Node C" — هذا مجرد رسم، ليس شرحاً
-❌ لا تستخدم مربعات فارغة بتسميات تقنية دون تشبيه
-❌ لا تفترض أن الطالب يعرف أي مصطلح تقني — حتى "بيانات" و"قيمة" تحتاج شرح
-❌ لا تجعل الانيميشن مجرد تغيير لون — يجب أن يُحرّك شيئاً فيزيائياً
-❌ لا تضع كوداً في الخطوات الأولى — الكود يأتي في النهاية فقط
-
-✅ ابدأ دائماً بمشهد يمكن لأي شخص أن يتخيله
-✅ اجعل الحركة تعبّر عن ما يحدث فعلاً (شيء ينتقل، يُفتح، يُغلق، ينتهي)
-✅ استخدم CSS @keyframes للحركة الحقيقية (translate، scale، rotate)
-✅ كل خطوة تُجيب على: "ماذا يحدث الآن في المشهد الحقيقي؟"
-
----
-
-## ═══════════════════════════════════════════════════
-## المواصفات التقنية الإلزامية
-## ═══════════════════════════════════════════════════
-
-### المكتبات الخارجية (CDN فقط — لا backend)
-\`\`\`html
-<script src="https://cdn.tailwindcss.com"><\/script>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-\`\`\`
-
-### 2. الثيم الداكن (إلزامي — لا تغيره)
-| المتغير | القيمة |
-|---|---|
-| خلفية الصفحة | \`#0f172a\` (slate-900) |
-| خلفية البطاقات | \`#1e293b\` (slate-800) |
-| خلفية عناصر العمق | \`#0f172a\` |
-| حدود عادية | \`#334155\` |
-| حدود نشطة | \`#38bdf8\` مع \`box-shadow: 0 0 20px rgba(56,189,248,0.3)\` |
-| نص رئيسي | \`#e2e8f0\` |
-| نص خافت | \`#94a3b8\` (slate-400) |
-| نجاح | \`#22c55e\` + \`rgba(34,197,94,0.2)\` |
-| خطأ/رفض | \`#ef4444\` + \`rgba(239,68,68,0.1)\` |
-| تحذير/ترقيم | \`#fbbf24\` |
-| أزرق مميز | \`#38bdf8\` |
-| بنفسجي | \`#c084fc\` |
-| وردي | \`#f472b6\` |
-
-### 3. هيكل الصفحة والألوان
-\`\`\`
-body: #0f172a | cards: #1e293b | borders: #334155
-active: #38bdf8 + glow | success: #22c55e | error: #ef4444 | warn: #fbbf24
-fonts: Cairo (arabic) + Fira Code (code/numbers)
-\`\`\`
-
-### 4. الانتقالات الإلزامية
-- استخدم \`transition: all 0.4s ease\` على العناصر التفاعلية
-- استخدم \`@keyframes\` للحركة الفيزيائية (الأشياء تتحرك/تنتقل)
-- أمثلة على @keyframes مطلوبة:
-\`\`\`css
-@keyframes slideRight { from { transform: translateX(0); } to { transform: translateX(300px); } }
-@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
-@keyframes fadeIn { from { opacity:0; transform:scale(0.8); } to { opacity:1; transform:scale(1); } }
-@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(56,189,248,0.4); } 50% { box-shadow: 0 0 0 15px rgba(56,189,248,0); } }
-@keyframes walkStep { 0% { transform:translateX(0) scaleX(1); } 40% { transform:translateX(15px) scaleX(1); } 60% { transform:translateX(15px) scaleX(1) translateY(-8px); } 100% { transform:translateX(30px) scaleX(1); } }
-\`\`\`
-
-### 5. Web Audio API (إلزامي)
-\`\`\`javascript
-let audioCtx=null;
-function playSound(t){try{if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);const n=audioCtx.currentTime;if(t==='click'){o.type='sine';o.frequency.setValueAtTime(800,n);g.gain.setValueAtTime(0.1,n);g.gain.exponentialRampToValueAtTime(0.01,n+0.1);}else if(t==='success'){o.type='triangle';o.frequency.setValueAtTime(400,n);o.frequency.setValueAtTime(700,n+0.12);g.gain.setValueAtTime(0.12,n);g.gain.linearRampToValueAtTime(0.01,n+0.25);}else if(t==='fail'){o.type='sawtooth';o.frequency.setValueAtTime(250,n);o.frequency.linearRampToValueAtTime(120,n+0.2);g.gain.setValueAtTime(0.1,n);g.gain.linearRampToValueAtTime(0.01,n+0.2);}else if(t==='step'){o.type='triangle';o.frequency.setValueAtTime(350,n);o.frequency.linearRampToValueAtTime(550,n+0.1);g.gain.setValueAtTime(0.08,n);g.gain.linearRampToValueAtTime(0.01,n+0.15);}o.start(n);o.stop(n+0.3);}catch(e){}}
-\`\`\`
-
-### 6. نمط الخطوات (إلزامي)
-\`\`\`javascript
-let step = 0;
-const steps = [
-  { text: "...", action: () => { /* تحريك مشهد حقيقي */ } },
-  // ...
-];
-function nextStep() {
-  if (!document.getElementById('btn-next') || document.getElementById('btn-next').disabled) return;
-  playSound('click');
-  if (step < steps.length) { const s=steps[step]; document.getElementById('explanation').innerHTML=s.text; s.action&&s.action(); step++; }
-  const counter=document.getElementById('step-counter');
-  if (step>=steps.length) { document.getElementById('btn-next').disabled=true; document.getElementById('btn-next').style.opacity='0.4'; counter.innerHTML='✅ اكتمل'; counter.className='text-white font-bold bg-green-600 px-4 py-2 rounded-lg'; playSound('success'); }
-  else { counter.innerText=\`\${step} / \${steps.length}\`; }
-}
-function resetAll() {
-  step=0;
-  document.getElementById('btn-next').disabled=false;
-  document.getElementById('btn-next').style.opacity='1';
-  document.getElementById('step-counter').innerText='ابدأ';
-  document.getElementById('step-counter').className='text-slate-400 font-bold px-4 py-2 rounded-lg border border-slate-700';
-  // أعد كل العناصر لحالتها الأصلية
-  playSound('click');
-}
-\`\`\`
-
-### 7. قواعد الكود والعربية
-- الكود/أرقام/متغيرات: \`<bdi dir="ltr" style="font-family:'Fira Code',monospace">...</bdi>\`
-- حقول الكود: \`direction:ltr; text-align:left; font-family:'Fira Code',monospace\`
-- ألوان VS Code: keywords \`#c586c0\` | vars \`#9cdcfe\` | strings \`#ce9178\` | numbers \`#b5cea8\` | funcs \`#dcdcaa\`
-
----
-
-## ═══════════════════════════════════════════════════
-## المثال المرجعي — حلقة for عبر ساعي البريد
-## (هذا هو النموذج الصحيح: الواقع أولاً، ثم الكود أخيراً)
-## ═══════════════════════════════════════════════════
-
-\`\`\`html
-<!DOCTYPE html>
+// ── Server-side HTML template ─────────────────────────────────────────────────
+// All boilerplate (CSS, JS engine, layout) lives HERE on the server.
+// GPT-5 generates ONLY the 4 dynamic sections (title, subtitle, SVG, JS).
+// This keeps the prompt well under 4000 tokens.
+const VISUAL_HTML_TEMPLATE = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>حلقة for — ساعي البريد</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
 <script src="https://cdn.tailwindcss.com"><\/script>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"><\/script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"><\/script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"><\/script>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  body{font-family:'Cairo',sans-serif;background:#0f172a;color:#e2e8f0;}
-  .math-text{direction:ltr!important;display:inline-block;font-family:'Fira Code',monospace;}
-  /* ── ساعي البريد ── */
-  #postman{position:absolute;font-size:2.8rem;bottom:18px;right:16px;transition:right 0.7s cubic-bezier(.4,0,.2,1),transform 0.2s;z-index:10;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.5));}
-  #postman.delivering{animation:deliverBob 0.4s ease;}
-  @keyframes deliverBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-14px);}}
-  /* ── البيوت ── */
-  .house{position:relative;display:flex;flex-direction:column;align-items:center;transition:all 0.4s;}
-  .house-body{width:72px;height:56px;border-radius:8px;border:2px solid #334155;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:1.6rem;transition:all 0.4s;}
-  .house-roof{width:0;height:0;border-left:40px solid transparent;border-right:40px solid transparent;border-bottom:32px solid #334155;transition:border-bottom-color 0.4s;}
-  .house-label{margin-top:6px;font-size:0.85rem;color:#64748b;font-weight:bold;font-family:'Fira Code',monospace;}
-  .house.visited .house-body{background:#052e16;border-color:#22c55e;box-shadow:0 0 20px rgba(34,197,94,0.3);}
-  .house.visited .house-roof{border-bottom-color:#16a34a;}
-  .house.current .house-body{background:#0c4a6e;border-color:#38bdf8;box-shadow:0 0 25px rgba(56,189,248,0.4);}
-  .house.current .house-roof{border-bottom-color:#0284c7;}
-  .letter{display:none;position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:1.3rem;animation:letterPop 0.5s ease forwards;}
-  .house.delivering .letter{display:block;}
-  @keyframes letterPop{from{opacity:0;transform:translateX(-50%) translateY(10px) scale(0.5);}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}}
-  /* ── كود ── */
-  .code-block{direction:ltr;text-align:left;font-family:'Fira Code',monospace;background:#1e1e1e;border-radius:10px;padding:1.2rem;font-size:1rem;border:1px solid #334155;line-height:2;}
-  .code-line{transition:all 0.3s;padding:2px 8px;border-radius:4px;}
-  .code-line.active{background:rgba(56,189,248,0.18);border-right:3px solid #38bdf8;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{width:100%;min-height:100vh;overflow-x:hidden;}
+body{font-family:'Cairo',sans-serif;background:#0f172a;color:#e2e8f0;direction:rtl;}
+.ltr{direction:ltr;display:inline-block;}.code-font{font-family:'Fira Code',monospace;}
+.card{background:rgba(30,41,59,0.85);border:1px solid rgba(51,65,85,0.8);border-radius:16px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 4px 24px -4px rgba(0,0,0,0.5),0 1px 0 0 rgba(255,255,255,0.04) inset;}
+.scene-wrap{width:100%;border-radius:12px;border:1px solid #1e293b;background:#060d1a;overflow:hidden;}
+.scene-svg{width:100%;display:block;}
+.explanation-bar{background:rgba(180,83,9,0.12);border-right:4px solid #d97706;padding:1.1rem 1.4rem;min-height:88px;display:flex;align-items:center;backdrop-filter:blur(6px);}
+#explanation{font-size:1.05rem;color:#fef3c7;line-height:1.75;min-height:2.5rem;}
+.control-bar{display:flex;justify-content:space-between;align-items:center;padding:0.9rem 1.25rem;border-top:1px solid rgba(51,65,85,0.6);background:rgba(15,23,42,0.7);backdrop-filter:blur(8px);}
+.btn-next{background:linear-gradient(135deg,#d97706,#b45309);color:#fff;font-family:'Cairo',sans-serif;font-weight:700;font-size:1rem;padding:0.65rem 1.6rem;border-radius:10px;border:none;cursor:pointer;transition:filter 0.2s,transform 0.15s;box-shadow:0 2px 12px rgba(217,119,6,0.35);display:flex;align-items:center;gap:8px;}
+.btn-next:hover:not(:disabled){filter:brightness(1.12);}.btn-next:active:not(:disabled){transform:scale(0.96);}.btn-next:disabled{opacity:0.35;cursor:not-allowed;box-shadow:none;}
+.btn-prev{background:rgba(51,65,85,0.7);color:#e2e8f0;font-family:'Cairo',sans-serif;font-weight:600;font-size:0.95rem;padding:0.65rem 1.1rem;border-radius:10px;border:1px solid rgba(71,85,105,0.5);cursor:pointer;transition:background 0.2s,transform 0.15s;}
+.btn-prev:hover:not(:disabled){background:rgba(71,85,105,0.8);}.btn-prev:disabled{opacity:0.25;cursor:not-allowed;}
+.btn-reset{background:rgba(30,41,59,0.6);color:#94a3b8;font-family:'Cairo',sans-serif;font-weight:600;font-size:0.9rem;padding:0.55rem 1rem;border-radius:8px;border:1px solid rgba(51,65,85,0.5);cursor:pointer;transition:background 0.2s,color 0.2s;}
+.btn-reset:hover{background:rgba(51,65,85,0.7);color:#e2e8f0;}
+.step-badge{color:#94a3b8;font-weight:700;padding:0.4rem 0.9rem;border-radius:8px;border:1px solid rgba(51,65,85,0.6);font-size:0.9rem;background:rgba(15,23,42,0.5);}
+.step-badge.done{background:#166534;color:#fff;border-color:#166534;}
+.code-panel{display:none;padding:0 1.25rem 1.25rem;}
+.code-panel pre[class*="language-"]{border-radius:10px;font-size:0.88rem;line-height:1.85;border:1px solid #1e293b;margin:0;box-shadow:0 2px 12px rgba(0,0,0,0.4);}
+.code-panel .code-line-hl{display:block;background:rgba(56,189,248,0.12);border-right:3px solid #38bdf8;border-radius:3px;transition:background 0.4s;}
+.watch-panel{position:absolute;top:10px;right:10px;background:rgba(15,23,42,0.82);border:1px solid rgba(56,189,248,0.25);border-radius:8px;padding:6px 10px;font-family:'Fira Code',monospace;font-size:0.78rem;min-width:90px;direction:ltr;text-align:left;backdrop-filter:blur(6px);z-index:10;}
+.watch-panel .wv{color:#9cdcfe;transition:color 0.3s;}.watch-panel .wv.changed{color:#22c55e;animation:wFlip 0.4s ease;}
+@keyframes wFlip{0%{transform:rotateX(90deg);opacity:0;}60%{transform:rotateX(-10deg);}100%{transform:rotateX(0);opacity:1;}}
+.t-bounce{transition:transform 0.5s cubic-bezier(0.68,-0.55,0.265,1.55),opacity 0.3s ease;}
+.t-glide{transition:transform 0.6s cubic-bezier(0.22,1,0.36,1),opacity 0.35s ease;}
+.t-snap{transition:transform 0.25s cubic-bezier(0.4,0,0.2,1),opacity 0.2s ease;}
+.svg-dim{opacity:0.25;transition:opacity 0.4s ease;}.svg-focus{filter:drop-shadow(0 0 8px #38bdf8);transition:filter 0.4s,opacity 0.4s;}
+.svg-success{filter:drop-shadow(0 0 10px #22c55e);}.svg-error{filter:drop-shadow(0 0 10px #ef4444);}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+.cursor{display:inline-block;width:2px;height:1em;background:#d97706;vertical-align:text-bottom;animation:blink 0.8s step-end infinite;margin-right:2px;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+@keyframes popIn{from{opacity:0;transform:scale(0.4);}to{opacity:1;transform:scale(1);}}
+@keyframes bounceY{0%,100%{transform:translateY(0);}50%{transform:translateY(-12px);}}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
+@keyframes spin{to{transform:rotate(360deg);}}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-5px);}75%{transform:translateX(5px);}}
 </style>
 </head>
-<body class="min-h-screen p-4 flex flex-col items-center">
-
-<header class="text-center mb-6 w-full max-w-3xl">
-  <h1 class="text-3xl font-extrabold text-amber-400 mb-1">حلقة <bdi dir="ltr" class="math-text">for</bdi></h1>
-  <p class="text-slate-400">مثل ساعي البريد — يزور كل بيت بالترتيب ولا يتخطى أحداً</p>
-</header>
-
-<main class="w-full max-w-3xl bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
-  <!-- شريط الشرح -->
-  <div class="bg-amber-900/25 border-r-4 border-amber-500 p-5 min-h-[110px] flex items-center">
-    <p id="explanation" class="text-lg text-amber-50 leading-relaxed">
-      تخيّل معي مشهداً بسيطاً: <b>ساعي البريد</b> لديه 4 رسائل يجب توصيلها لـ 4 بيوت في الشارع.
-      اضغط <b>«الخطوة التالية»</b> لنرى كيف يعمل.
-    </p>
-  </div>
-
-  <!-- المسرح البصري -->
-  <div id="visual-area" class="p-6 opacity-30 pointer-events-none transition-opacity duration-500">
-
-    <!-- الشارع مع البيوت -->
-    <div class="relative mb-4" style="height:160px;background:linear-gradient(to bottom,#0f172a 0%,#0f172a 70%,#1e293b 70%,#1e293b 100%);border-radius:12px;border:1px solid #334155;overflow:hidden;">
-      <!-- الرصيف -->
-      <div style="position:absolute;bottom:0;left:0;right:0;height:46px;background:#1e293b;border-top:2px dashed #334155;"></div>
-      <!-- البيوت -->
-      <div id="houses" class="absolute flex items-end justify-around w-full" style="bottom:46px;padding:0 20px;">
-        <div class="house" id="house-0"><div class="house-roof"></div><div class="house-body">🏠<span class="letter">✉️</span></div><div class="house-label">[0]</div></div>
-        <div class="house" id="house-1"><div class="house-roof"></div><div class="house-body">🏡<span class="letter">✉️</span></div><div class="house-label">[1]</div></div>
-        <div class="house" id="house-2"><div class="house-roof"></div><div class="house-body">🏘<span class="letter">✉️</span></div><div class="house-label">[2]</div></div>
-        <div class="house" id="house-3"><div class="house-roof"></div><div class="house-body">🏚<span class="letter">✉️</span></div><div class="house-label">[3]</div></div>
-      </div>
-      <!-- ساعي البريد -->
-      <div id="postman">🧑‍💼</div>
+<body class="p-4 flex flex-col items-center">
+  <header style="text-align:center;margin-bottom:1.5rem;width:100%;max-width:740px;">
+    <h1 style="font-size:1.75rem;font-weight:800;color:#fbbf24;margin-bottom:0.2rem;">{{TITLE}}</h1>
+    <p style="color:#94a3b8;font-size:0.92rem;">{{SUBTITLE}}</p>
+  </header>
+  <main class="card" style="width:100%;max-width:740px;overflow:hidden;">
+    <div class="explanation-bar">
+      <p id="explanation">👆 اضغط <b>«التالي»</b> لتبدأ الشرح البصري.</p>
     </div>
-
-    <!-- حقيبة الرسائل -->
-    <div class="flex items-center justify-center gap-3 mb-5">
-      <span class="text-slate-400 text-sm">الرسائل المتبقية:</span>
-      <div id="bag" class="flex gap-2">
-        <span id="l0" class="text-xl transition-all">✉️</span>
-        <span id="l1" class="text-xl transition-all">✉️</span>
-        <span id="l2" class="text-xl transition-all">✉️</span>
-        <span id="l3" class="text-xl transition-all">✉️</span>
+    <div style="padding:1.25rem;">
+      <div class="scene-wrap" style="position:relative;">
+        <svg id="scene" class="scene-svg" viewBox="0 0 700 260" style="height:260px;">
+          {{SVG_SCENE}}
+        </svg>
+        <div class="watch-panel" id="watch" style="display:none;"></div>
       </div>
     </div>
-
-    <!-- عداد التكرار -->
-    <div id="loop-counter" class="text-center text-slate-500 text-sm font-bold mb-5 hidden">
-      التكرار الحالي: <span id="iter-num" class="text-amber-400 text-xl font-extrabold math-text">—</span>
+    <div class="code-panel" id="code-panel">
+      <p style="color:#94a3b8;font-size:0.82rem;margin-bottom:0.6rem;text-align:center;">الكود المقابل للمشهد ↓</p>
+      <pre><code id="code-block" class="language-javascript">/* الكود يظهر هنا */</code></pre>
     </div>
-
-    <!-- الكود — يظهر في النهاية -->
-    <div id="code-section" class="hidden">
-      <p class="text-slate-400 text-sm mb-2 text-center">هكذا تكتبها بالبايثون:</p>
-      <div class="code-block">
-        <div class="code-line" id="cl-for"><span style="color:#c586c0">for</span> <span style="color:#9cdcfe">i</span> <span style="color:#d4d4d4">in</span> <span style="color:#dcdcaa">range</span><span style="color:#d4d4d4">(</span><span style="color:#b5cea8">4</span><span style="color:#d4d4d4">):</span></div>
-        <div class="code-line" id="cl-body"><span style="color:#d4d4d4">&nbsp;&nbsp;&nbsp;&nbsp;</span><span style="color:#dcdcaa">deliver</span><span style="color:#d4d4d4">(houses[</span><span style="color:#9cdcfe">i</span><span style="color:#d4d4d4">])</span></div>
+    <div class="control-bar">
+      <div id="step-badge" class="step-badge">ابدأ</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-reset" onclick="resetAll()">🔄</button>
+        <button class="btn-prev" id="btn-prev" onclick="prevStep()" disabled>&#9664; السابق</button>
+        <button class="btn-next" id="btn-next" onclick="nextStep()">التالي &#9654;</button>
       </div>
     </div>
-  </div>
-
-  <!-- شريط التحكم -->
-  <div class="flex justify-between items-center border-t border-slate-700 p-5 bg-slate-900">
-    <div id="step-counter" class="text-slate-400 font-bold px-4 py-2 rounded-lg border border-slate-700">ابدأ</div>
-    <div class="flex gap-3">
-      <button onclick="resetAll()" class="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2.5 px-5 rounded-xl transition-all">🔄 إعادة</button>
-      <button id="btn-next" onclick="nextStep()" class="bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 px-7 rounded-xl transition-all flex items-center gap-2">الخطوة التالية <i class="fas fa-step-forward"></i></button>
-    </div>
-  </div>
-</main>
-
+  </main>
 <script>
-let audioCtx=null;
-function playSound(t){try{if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);const n=audioCtx.currentTime;if(t==='click'){o.type='sine';o.frequency.setValueAtTime(700,n);g.gain.setValueAtTime(0.08,n);g.gain.exponentialRampToValueAtTime(0.01,n+0.1);}else if(t==='step'){o.type='triangle';o.frequency.setValueAtTime(400,n);o.frequency.linearRampToValueAtTime(600,n+0.12);g.gain.setValueAtTime(0.1,n);g.gain.linearRampToValueAtTime(0.01,n+0.18);}else if(t==='success'){o.type='triangle';o.frequency.setValueAtTime(400,n);o.frequency.setValueAtTime(700,n+0.1);o.frequency.setValueAtTime(900,n+0.2);g.gain.setValueAtTime(0.1,n);g.gain.linearRampToValueAtTime(0.01,n+0.3);}o.start(n);o.stop(n+0.35);}catch(e){}}
-
-// مواضع ساعي البريد لكل بيت (من اليمين)
-const housePositions = [16, 120, 224, 328];
-const letterIds = ['l0','l1','l2','l3'];
-
-function movePostman(houseIdx, cb) {
-  const pm = document.getElementById('postman');
-  pm.style.right = housePositions[houseIdx] + 'px';
-  setTimeout(cb, 750);
+let _ac=null;
+function playSound(type){try{if(!_ac)_ac=new(window.AudioContext||window.webkitAudioContext)();if(_ac.state==='suspended')_ac.resume();const o=_ac.createOscillator(),g=_ac.createGain();o.connect(g);g.connect(_ac.destination);const t=_ac.currentTime;const cfg={click:{type:'sine',f:[520],vol:0.07,dur:0.09},step:{type:'triangle',f:[330,520],vol:0.08,dur:0.16},success:{type:'triangle',f:[400,600,800],vol:0.10,dur:0.30},back:{type:'sine',f:[300,240],vol:0.06,dur:0.14}}[type]||{type:'sine',f:[440],vol:0.06,dur:0.1};o.type=cfg.type;cfg.f.forEach((f,i)=>o.frequency.setValueAtTime(f,t+i*(cfg.dur/cfg.f.length)));g.gain.setValueAtTime(cfg.vol,t);g.gain.linearRampToValueAtTime(0.001,t+cfg.dur);o.start(t);o.stop(t+cfg.dur+0.05);}catch(e){}}
+let _twTimer=null;
+function typewrite(html,targetId='explanation',speed=22){clearTimeout(_twTimer);const el=document.getElementById(targetId);if(!el)return;el.innerHTML='<span class="cursor"></span>';const tmp=document.createElement('div');tmp.innerHTML=html;const text=tmp.textContent||'';let i=0;function tick(){if(i<=text.length){el.innerHTML=text.slice(0,i)+'<span class="cursor"></span>';i++;_twTimer=setTimeout(tick,speed);}else{el.innerHTML=html;}}tick();}
+function spotlight(ids){const all=document.querySelectorAll('#scene [data-actor]');all.forEach(el=>{if(ids.length===0||ids.includes(el.id)){el.classList.remove('svg-dim');if(ids.length>0)el.classList.add('svg-focus');else el.classList.remove('svg-focus');}else{el.classList.remove('svg-focus');el.classList.add('svg-dim');}});}
+function updateWatch(vars){const panel=document.getElementById('watch');if(panel)panel.style.display='block';Object.entries(vars).forEach(([k,v])=>{const el=document.getElementById('wv-'+k);if(!el)return;el.classList.remove('changed');void el.offsetWidth;el.textContent=v;el.classList.add('changed');setTimeout(()=>el.classList.remove('changed'),600);});}
+// ── showCode helper — safe code panel renderer ────────────────────────────────
+// Usage: showCode('python', myCodeVar)
+// Always pass code as a variable defined with String.raw above the steps array.
+// Never inline code strings directly inside action() — escaping will break.
+function showCode(lang, code){
+  const block=document.getElementById('code-block');
+  const panel=document.getElementById('code-panel');
+  if(!block||!panel)return;
+  block.className='language-'+(lang||'javascript');
+  block.textContent=code; // textContent = safe, no HTML-escaping issues
+  if(window.Prism)Prism.highlightElement(block);
+  panel.style.display='block';
 }
-
-function visitHouse(i) {
-  document.querySelectorAll('.house').forEach(h => h.classList.remove('current','delivering'));
-  const house = document.getElementById('house-'+i);
-  house.classList.add('current');
-  movePostman(i, () => {
-    house.classList.add('delivering');
-    playSound('step');
-    const ltr = document.getElementById(letterIds[i]);
-    ltr.style.opacity = '0.2';
-    ltr.style.transform = 'scale(0.5)';
-    document.getElementById('iter-num').innerText = i;
-    setTimeout(() => {
-      house.classList.remove('delivering','current');
-      house.classList.add('visited');
-    }, 600);
-  });
+// ── highlightLine helper — add blue glow to one code line ─────────────────────
+// Usage: highlightLine(3)  ← 1-based line number
+function highlightLine(n){
+  const block=document.getElementById('code-block');
+  if(!block)return;
+  const lines=block.innerHTML.split('\n');
+  const idx=n-1;
+  if(idx<0||idx>=lines.length)return;
+  lines[idx]='<span class="code-line-hl">'+lines[idx]+'</span>';
+  block.innerHTML=lines.join('\n');
 }
-
-let step = 0;
-const steps = [
-  {
-    text: '🧑‍💼 هذا ساعي البريد. لديه <b>4 رسائل</b> في حقيبته يجب توصيلها لـ <b>4 بيوت</b> في الشارع — بالترتيب من اليمين لليسار.',
-    action: () => {
-      document.getElementById('visual-area').classList.remove('opacity-30','pointer-events-none');
-    }
-  },
-  {
-    text: '📬 البيت الأول (رقم 0): ساعي البريد يمشي للبيت الأول ويطرق الباب... ويُسلّم الرسالة! ✉️',
-    action: () => {
-      document.getElementById('loop-counter').classList.remove('hidden');
-      visitHouse(0);
-    }
-  },
-  {
-    text: '📬 البيت الثاني (رقم 1): دون أن يتوقف أو يسأل — ينتقل مباشرة للبيت التالي ويُسلّم الرسالة.',
-    action: () => { visitHouse(1); }
-  },
-  {
-    text: '📬 البيت الثالث (رقم 2): نفس الشيء تماماً — يكرر الخطوة ذاتها مع كل بيت جديد. هذا هو جوهر الحلقة!',
-    action: () => { visitHouse(2); }
-  },
-  {
-    text: '📬 البيت الأخير (رقم 3): آخر رسالة! بعدها تنتهي الحلقة لأنه أنجز كل المهام.',
-    action: () => { visitHouse(3); }
-  },
-  {
-    text: '🔗 <b>الربط بالبرمجة:</b> الحلقة <b>for</b> في بايثون تفعل نفس الشيء تماماً — تُنفّذ نفس الأمر لكل عنصر بالترتيب حتى ينتهوا.',
-    action: () => {
-      document.getElementById('code-section').classList.remove('hidden');
-      document.getElementById('cl-for').classList.add('active');
-      playSound('step');
-    }
-  },
-  {
-    text: '✅ <b>كل مرة تدور الحلقة:</b> يتغير <b>i</b> تلقائياً (0 ثم 1 ثم 2 ثم 3) وتُنفَّذ السطر الداخلي مرة واحدة لكل قيمة. تماماً مثل ساعي البريد يزور بيتاً جديداً في كل جولة!',
-    action: () => {
-      document.getElementById('cl-for').classList.remove('active');
-      document.getElementById('cl-body').classList.add('active');
-      setTimeout(() => { document.getElementById('cl-body').classList.remove('active'); document.getElementById('cl-for').classList.add('active'); }, 600);
-      playSound('success');
-    }
-  }
-];
-
-function nextStep() {
-  const btn = document.getElementById('btn-next');
-  if (btn.disabled) return;
-  playSound('click');
-  if (step < steps.length) {
-    const s = steps[step];
-    document.getElementById('explanation').innerHTML = s.text;
-    s.action && s.action();
-    step++;
-  }
-  const counter = document.getElementById('step-counter');
-  if (step >= steps.length) {
-    btn.disabled = true; btn.style.opacity = '0.4';
-    counter.innerHTML = '✅ اكتمل الدرس';
-    counter.className = 'text-white font-bold bg-green-600 px-4 py-2 rounded-lg';
-    playSound('success');
-  } else {
-    counter.innerText = step + ' / ' + steps.length;
-  }
-}
-
-function resetAll() {
-  step = 0;
-  document.getElementById('btn-next').disabled = false;
-  document.getElementById('btn-next').style.opacity = '1';
-  document.getElementById('step-counter').innerText = 'ابدأ';
-  document.getElementById('step-counter').className = 'text-slate-400 font-bold px-4 py-2 rounded-lg border border-slate-700';
-  document.getElementById('explanation').innerHTML = 'تخيّل معي مشهداً بسيطاً: <b>ساعي البريد</b> لديه 4 رسائل يجب توصيلها لـ 4 بيوت في الشارع. اضغط <b>«الخطوة التالية»</b> لنرى كيف يعمل.';
-  document.getElementById('visual-area').classList.add('opacity-30','pointer-events-none');
-  document.getElementById('loop-counter').classList.add('hidden');
-  document.getElementById('iter-num').innerText = '—';
-  document.getElementById('code-section').classList.add('hidden');
-  document.getElementById('postman').style.right = '16px';
-  document.querySelectorAll('.house').forEach(h => h.classList.remove('visited','current','delivering'));
-  letterIds.forEach(id => { document.getElementById(id).style.opacity='1'; document.getElementById(id).style.transform='scale(1)'; });
-  playSound('click');
-}
+let currentStep=0;
+{{STEPS_AND_RESET}}
+function applyStep(i){if(i<0||i>=steps.length)return;const s=steps[i];typewrite(s.text);if(s.action)s.action();const badge=document.getElementById('step-badge');const done=i===steps.length-1;if(badge){badge.textContent=done?'✅ اكتمل':(i+1)+' / '+steps.length;badge.classList.toggle('done',done);}const nb=document.getElementById('btn-next'),pb=document.getElementById('btn-prev');if(nb)nb.disabled=done;if(pb)pb.disabled=(i===0);if(done)playSound('success');}
+function nextStep(){if(currentStep>=steps.length)return;playSound('step');applyStep(currentStep);currentStep++;}
+function prevStep(){if(currentStep<=1)return;playSound('back');currentStep--;resetVisuals();for(let i=0;i<currentStep-1;i++)if(steps[i].action)steps[i].action();applyStep(currentStep-1);}
+function resetAll(){currentStep=0;clearTimeout(_twTimer);playSound('click');document.getElementById('explanation').innerHTML='👆 اضغط <b>«التالي»</b> لتبدأ الشرح البصري.';const nb=document.getElementById('btn-next'),pb=document.getElementById('btn-prev');if(nb)nb.disabled=false;if(pb)pb.disabled=true;const badge=document.getElementById('step-badge');if(badge){badge.textContent='ابدأ';badge.classList.remove('done');}const cp=document.getElementById('code-panel');if(cp)cp.style.display='none';spotlight([]);const wp=document.getElementById('watch');if(wp)wp.style.display='none';resetVisuals();}
 <\/script>
 </body>
-</html>
-\`\`\`
+</html>`;
 
----
+// ── Minimal system prompt (~400 tokens — fits well inside GPT-5 GitHub Models limit) ──
+const SYSTEM_PROMPT = `You are an Arabic educational visualization expert. Your output MUST contain ONLY these 4 labeled sections — no other text, no HTML wrapper, no explanations.
 
-## تعليمات التسليم النهائية
-- أخرج صفحة HTML واحدة فقط بين \`\`\`html و \`\`\`
-- لا نص خارج الكود إطلاقاً
-- الصفحة تعمل بالكامل بدون أي server
-- **الواقع أولاً**: خطوتك الأولى دائماً مشهد من الحياة — لا كود، لا مصطلحات
-- **المحاكاة حية**: استخدم CSS @keyframes لتحريك الأشياء فعلاً (انتقال، حركة، ظهور)
-- **الكود آخراً**: أظهر الكود فقط في الخطوة قبل الأخيرة أو الأخيرة بعد أن فهم الطالب المفهوم من الواقع`;
+=== TITLE ===
+[Concise Arabic title, 3-6 words]
+=== END_TITLE ===
 
-// ── Build task prompt (system spec + user message combined) ───────────────────
-function buildTaskPrompt(message: string): string {
+=== SUBTITLE ===
+[One Arabic sentence: a vivid real-world analogy for the concept]
+=== END_SUBTITLE ===
+
+=== SVG_SCENE ===
+[SVG child elements that go INSIDE <svg viewBox="0 0 700 260">]
+[Use: rect, circle, ellipse, path, polygon, text, g, defs, marker — NO <svg> tag itself]
+[Every animated element: id="unique-id" data-actor="true"]
+[Warm colors for real-world: #fbbf24 #f97316 #a78bfa]
+[Cool colors for abstract data: #38bdf8 #22c55e #818cf8]
+[SVG Arabic text: font-family="Cairo, sans-serif"]
+=== END_SVG_SCENE ===
+
+=== JS_CODE ===
+// ── RULE: define ALL code strings ABOVE the steps array using a multiline string ──
+// Example:
+//   const CODE_PYTHON = "def example(x):\\n    return x * 2\\nprint(example(3))";
+// Then in action(): showCode('python', CODE_PYTHON); highlightLine(1);
+
+const steps = [
+  {
+    text: "Arabic HTML — use <bdi class=\"ltr code-font\">identifier</bdi> for identifiers, <bdi class=\"ltr\" style=\"color:#38bdf8\">Term</bdi> for English terms",
+    action: () => {
+      // SVG movement:   el.style.transform='translate(Xpx,Ypx)'; el.classList.add('t-glide');
+      // SVG opacity:    el.style.opacity='0';
+      // Spotlight:      spotlight(['actor-id'])  or  spotlight([]) to clear
+      // Watch panel:    updateWatch({i: 3, total: 10})
+      // Show code:      showCode('python', CODE_EXAMPLE)   ← use the variable above
+      // Highlight line: highlightLine(2)                   ← 1-based line number
+    }
+  },
+  // ... 6 to 8 steps total
+];
+function resetVisuals() {
+  // Restore ALL animated elements: clear transform, reset opacity, reset fill
+}
+=== END_JS_CODE ===
+
+STEP RULES: 6-8 steps. Phase 1 (steps 1-2): real-world SVG, warm colors, ZERO tech terms. Phase 2 (steps 3-5): morph real-world → abstract data structure, cool colors. Phase 3 (steps 6-8): reveal code with showCode(), highlight lines with highlightLine(). Each step: ONE action, spotlight the active actor.
+
+CODE PANEL RULES (CRITICAL):
+- ALWAYS declare code as a plain string variable BEFORE the steps array — never paste raw code inside action()
+- Call showCode('language', VARIABLE_NAME) — supported langs: python, javascript, java, c, cpp, sql, bash
+- After showCode(), call highlightLine(n) in the SAME action to glow the relevant line
+- In resetVisuals(): call document.getElementById('code-panel').style.display='none'`;
+
+
+// ── Build user message (short — the system prompt is already concise) ─────────
+function buildTaskPrompt(message: string): { system: string; user: string } {
   const truncated =
     message.length > MAX_MESSAGE_CHARS
-      ? message.slice(0, MAX_MESSAGE_CHARS) + "\n\n[... تم اختصار الرسالة لأن طولها تجاوز الحد]"
+      ? message.slice(0, MAX_MESSAGE_CHARS) + "\n\n[... الرسالة مختصرة لأنها طويلة جداً]"
       : message;
 
-  return `⚡ IMPORTANT INSTRUCTIONS FOR THE AGENT ⚡
-- DO NOT browse the internet or visit any URLs
-- DO NOT install any packages or tools
-- DO NOT create files on disk — output the HTML directly in your final message
-- Your ONLY task: write a single self-contained HTML file and output it
-- Time limit: complete within 4 minutes
-
-${SYSTEM_PROMPT}
-
----
-
-## رسالة المعلم المراد شرحها بصرياً:
-
-${truncated}
-
----
-
-أنشئ صفحة HTML تفاعلية تشرح المفهوم الرئيسي في هذه الرسالة بصرياً.
-التزم بالمواصفات الثابتة تماماً، وابتكر طريقة عرض بصرية مناسبة لطبيعة هذا المفهوم.
-أخرج صفحة HTML واحدة فقط في ردّك النهائي — لا نص خارج الكود إطلاقاً.`;
+  const user = `رسالة المعلم:\n\n${truncated}\n\nأخرج الأقسام الأربعة المطلوبة فقط (TITLE, SUBTITLE, SVG_SCENE, JS_CODE).`;
+  return { system: SYSTEM_PROMPT, user };
 }
 
-// ── Manus: create task ────────────────────────────────────────────────────────
-async function createManusTask(prompt: string): Promise<string> {
-  const apiKey = process.env.MANUS_API_KEY;
-  if (!apiKey) throw new Error("MANUS_API_KEY غير محدد في الـ Secrets");
+// ── Parse model sections ──────────────────────────────────────────────────────
+// Extracts the 4 labeled sections from the model's response.
+function parseModelSections(text: string): {
+  title: string; subtitle: string; svgScene: string; jsCode: string;
+} | null {
+  function extract(tag: string): string {
+    const re = new RegExp(`===\\s*${tag}\\s*===([\\s\\S]*?)===\\s*END_${tag}\\s*===`, "i");
+    const m = re.exec(text);
+    return m ? m[1].trim() : "";
+  }
+  const title    = extract("TITLE");
+  const subtitle = extract("SUBTITLE");
+  const svgScene = extract("SVG_SCENE");
+  const jsCode   = extract("JS_CODE");
 
-  const response = await fetch(`${MANUS_API_BASE}/v2/task.create`, {
-    method:  "POST",
-    headers: {
-      "Content-Type":   "application/json",
-      "x-manus-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      message: {
-        content:       [{ type: "text", text: prompt }],
-        enable_skills: [],   // disable ALL skills (web browse, code exec, etc.)
-                             // → forces direct HTML generation without agent loops
+  if (!svgScene || !jsCode) {
+    console.error("[visual-explain] parseModelSections failed. Preview:", text.slice(0, 1000));
+    return null;
+  }
+  return { title: title || "الشرح البصري", subtitle: subtitle || "", svgScene, jsCode };
+}
+
+// ── Assemble final HTML ───────────────────────────────────────────────────────
+function assembleVisualHtml(
+  title: string, subtitle: string, svgScene: string, jsCode: string
+): string {
+  return VISUAL_HTML_TEMPLATE
+    .replace(/\{\{TITLE\}\}/g,            escapeHtml(title))
+    .replace(/\{\{SUBTITLE\}\}/g,         escapeHtml(subtitle))
+    .replace("{{SVG_SCENE}}",             svgScene)
+    .replace("{{STEPS_AND_RESET}}",       jsCode);
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+           .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+// ── Morph LLM: call morph-v3-fast via OpenAI-compatible API ──────────────────
+async function callMorphLLM(systemPrompt: string, userPrompt: string): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY غير محدد في الـ Secrets");
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MORPHLLM_TIMEOUT);
+
+  let response: Response;
+  try {
+    response = await fetch(`${MORPHLLM_API_BASE}/chat/completions`, {
+      method:  "POST",
+      signal:  controller.signal,
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${apiKey}`,
       },
-      structured_output_schema: {
-        type: "object",
-        properties: {
-          html: { type: "string" },
-        },
-        required: ["html"],
-        additionalProperties: false,
-      },
-    }),
-  });
+      body: JSON.stringify({
+        model:       MORPHLLM_MODEL,
+        max_tokens:  32000,
+        temperature: 0.7,
+        // Limit Gemini thinking budget so most tokens go to actual output
+        thinking: { type: "enabled", budget_tokens: 2000 },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userPrompt   },
+        ],
+      }),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
-    const sanitized = errText.slice(0, 300);
-    if (response.status === 401 || response.status === 403) {
-      throw new Error("خطأ في مفتاح Manus API — تحقق من MANUS_API_KEY في الـ Secrets");
-    }
-    throw new Error(`Manus task.create فشل (${response.status}): ${sanitized}`);
+    throw new Error(`Morph LLM فشل (${response.status}): ${errText.slice(0, 300)}`);
   }
 
-  const data = await response.json() as { ok: boolean; task_id?: string; error?: { message: string } };
-  if (!data.ok || !data.task_id) {
-    throw new Error(`Manus task.create خطأ: ${data.error?.message ?? JSON.stringify(data).slice(0, 200)}`);
+  const data = await response.json() as {
+    choices?: { message?: { content?: string | { type: string; text: string }[] } }[];
+    error?:   { message: string };
+  };
+
+  if (data.error) throw new Error(`Visual LLM خطأ: ${(data.error as any).message}`);
+
+  // Gemini (and some models) returns content as an array of parts — normalise to string
+  const raw = data.choices?.[0]?.message?.content;
+  const text = typeof raw === "string"
+    ? raw
+    : Array.isArray(raw)
+      ? raw.filter((p: any) => p.type === "text").map((p: any) => p.text).join("")
+      : "";
+
+  if (!text) {
+    console.error("[visual-explain] Empty response. Full data:", JSON.stringify(data).slice(0, 600));
+    throw new Error("النموذج أرجع رداً فارغاً — حاول مرة أخرى");
   }
 
-  console.log("[visual-explain] Manus task created:", data.task_id);
-  return data.task_id;
-}
-
-// ── Manus: poll until stopped ─────────────────────────────────────────────────
-async function pollManusTask(taskId: string): Promise<string> {
-  const apiKey = process.env.MANUS_API_KEY!;
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-  let cursor: string | undefined;
-  let agentStatus = "running";
-  let lastAssistantText = "";
-  let structuredHtml: string | null = null;
-
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-
-    const url = new URL(`${MANUS_API_BASE}/v2/task.listMessages`);
-    url.searchParams.set("task_id", taskId);
-    url.searchParams.set("limit",   "200");
-    url.searchParams.set("order",   "asc");
-    if (cursor) url.searchParams.set("cursor", cursor);
-
-    let response: Response;
-    try {
-      response = await fetch(url.toString(), {
-        headers: { "x-manus-api-key": apiKey },
-      });
-    } catch (netErr) {
-      console.warn("[visual-explain] poll network error:", netErr);
-      continue;
-    }
-
-    if (!response.ok) continue;
-
-    const data = await response.json() as {
-      ok: boolean;
-      data?: any[];
-      next_cursor?: string;
-    };
-    if (!data.ok || !Array.isArray(data.data)) continue;
-
-    if (data.next_cursor) cursor = data.next_cursor;
-
-    for (const event of data.data) {
-      const t: string = event.type ?? "";
-
-      if (t === "status_update") {
-        const status: string = event.status_update?.agent_status ?? "";
-        if (status) agentStatus = status;
-      } else if (t === "assistant_message") {
-        const content = event.message?.content;
-        if (typeof content === "string") {
-          lastAssistantText = content;
-        } else if (Array.isArray(content)) {
-          lastAssistantText = content
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text as string)
-            .join("\n");
-        }
-      } else if (t === "structured_output_result") {
-        const result = event.structured_output_result;
-        if (result?.success && typeof result?.value?.html === "string") {
-          structuredHtml = result.value.html;
-        }
-      }
-    }
-
-    console.log(`[visual-explain] Manus status=${agentStatus} (${taskId})`);
-
-    if (agentStatus === "error") {
-      throw new Error("مهمة Manus انتهت بخطأ — تحقق من رصيد حسابك على manus.im");
-    }
-
-    if (agentStatus === "stopped") {
-      // 1. Prefer structured output
-      if (structuredHtml && structuredHtml.length > 200) return structuredHtml;
-      // 2. Fallback: extract HTML from assistant text
-      if (lastAssistantText) {
-        const extracted = extractHtml(lastAssistantText);
-        if (extracted) return extracted;
-      }
-      throw new Error("Manus أنهى المهمة لكن لم يُرجع HTML صالحاً");
-    }
-  }
-
-  throw new Error("انتهت مهلة انتظار Manus (3 دقائق) — حاول مرة أخرى");
+  return text; // raw model output — caller parses sections and assembles HTML
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
@@ -603,12 +373,16 @@ async function generateVisualHtml(message: string): Promise<string> {
     return cached;
   }
 
-  console.log("[visual-explain] Starting Manus task…");
+  console.log(`[visual-explain] Calling ${MORPHLLM_MODEL} via OpenRouter…`);
   const t0 = Date.now();
 
-  const prompt  = buildTaskPrompt(message);
-  const taskId  = await createManusTask(prompt);
-  const html    = await pollManusTask(taskId);
+  const { system, user } = buildTaskPrompt(message);
+  const rawText = await callMorphLLM(system, user);
+
+  const sections = parseModelSections(rawText);
+  if (!sections) throw new Error("النموذج لم يُرجع الأقسام المطلوبة — حاول مرة أخرى");
+
+  const html = assembleVisualHtml(sections.title, sections.subtitle, sections.svgScene, sections.jsCode);
 
   console.log(`[visual-explain] Done in ${Math.round((Date.now() - t0) / 1000)}s — ${html.length} chars`);
 

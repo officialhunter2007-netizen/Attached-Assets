@@ -162,6 +162,7 @@ export default function Subscription() {
   const [selectedPlan, setSelectedPlan] = useState<PlanKey | null>(null);
   const [accountName, setAccountName] = useState("");
   const [notes, setNotes] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"kuraimi" | "jaib">("kuraimi");
   const [activationCode, setActivationCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
@@ -432,6 +433,8 @@ export default function Subscription() {
           subjectName: selectedSubject.name,
           // @ts-ignore — extra fields accepted by backend
           discountCode: discountInfo?.code ?? undefined,
+          // @ts-ignore — extra fields accepted by backend
+          paymentMethod,
         }
       });
       toast({
@@ -447,6 +450,7 @@ export default function Subscription() {
       setSelectedPlan(null);
       setAccountName("");
       setNotes("");
+      setPaymentMethod("kuraimi");
       // Clear discount state so the next request starts fresh.
       setDiscountInfo(null);
       setDiscountInput("");
@@ -812,8 +816,12 @@ export default function Subscription() {
             ) : (
               <div className="space-y-6">
                 <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
-                  <p className="text-xs text-emerald-400 font-bold text-center mb-1">{ts.payStep1Title}</p>
-                  <p className="text-[11px] text-center text-muted-foreground">{ts.payStep1Sub}</p>
+                  <p className="text-xs text-emerald-400 font-bold text-center mb-1">
+                    {paymentMethod === "jaib" ? ts.payStep1JaibTitle : ts.payStep1Title}
+                  </p>
+                  <p className="text-[11px] text-center text-muted-foreground">
+                    {paymentMethod === "jaib" ? ts.payStep1JaibSub : ts.payStep1Sub}
+                  </p>
                 </div>
 
                 <div className="bg-black/30 p-5 rounded-2xl border border-white/5">
@@ -929,30 +937,82 @@ export default function Subscription() {
                     </div>
                   )}
 
-                  <p className="text-sm font-bold mb-2">{ts.kuraimiNumber}:</p>
-                  {(() => {
-                    // Pull live numbers from /api/payment-settings/public; fall
-                    // back to the historical hard-coded values so the page is
-                    // never blank when the API hasn't responded yet.
-                    // Backend stores keys with dot-separators (kuraimi.north.number etc)
-                    // — see auto-migrate.ts seeds. Each region carries its own account
-                    // name so admins can route Northern vs Southern transfers to different
-                    // recipients later without a code change.
-                    const northNum = paymentSettings?.["kuraimi.north.number"] || "3165778412";
-                    const southNum = paymentSettings?.["kuraimi.south.number"] || "3167076083";
-                    const northName = paymentSettings?.["kuraimi.north.name"] || "عمرو خالد عبد المولى";
-                    const southName = paymentSettings?.["kuraimi.south.name"] || "عمرو خالد عبد المولى";
-                    const num = region === "north" ? northNum : southNum;
-                    const accountName = region === "north" ? northName : southName;
-                    return (
-                      <>
-                        <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
-                          {num}
-                        </div>
-                        <p className="text-center text-sm mt-2 font-medium">{ts.accountNameLabel}: <span className="text-gold">{accountName}</span></p>
-                      </>
-                    );
-                  })()}
+                  {/* Payment method selector */}
+                  <div className="mb-3">
+                    <p className="text-sm font-bold mb-2">{ts.paymentMethodLabel}:</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod("kuraimi")}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all ${
+                          paymentMethod === "kuraimi"
+                            ? "border-gold/60 bg-gold/10 shadow-sm shadow-gold/10"
+                            : "border-white/10 bg-black/20 hover:border-gold/30"
+                        }`}
+                      >
+                        <img src="/karimi-logo.png" alt="كريمي" className="w-7 h-7 rounded-lg object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        <span className={`text-sm font-bold ${paymentMethod === "kuraimi" ? "text-gold" : "text-muted-foreground"}`}>{ts.paymentMethodKuraimi}</span>
+                        {paymentMethod === "kuraimi" && <Check className="w-4 h-4 text-gold ml-auto shrink-0" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod("jaib")}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all ${
+                          paymentMethod === "jaib"
+                            ? "border-red-400/60 bg-red-500/10 shadow-sm shadow-red-500/10"
+                            : "border-white/10 bg-black/20 hover:border-red-400/30"
+                        }`}
+                      >
+                        <img src="/jaib-logo.png" alt="جيب" className="w-7 h-7 rounded-lg object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        <span className={`text-sm font-bold ${paymentMethod === "jaib" ? "text-red-400" : "text-muted-foreground"}`}>{ts.paymentMethodJaib}</span>
+                        {paymentMethod === "jaib" && <Check className="w-4 h-4 text-red-400 ml-auto shrink-0" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {paymentMethod === "kuraimi" ? (
+                    <>
+                      <p className="text-sm font-bold mb-2">{ts.kuraimiNumber}:</p>
+                      {(() => {
+                        const northNum = paymentSettings?.["kuraimi.north.number"] || "3165778412";
+                        const southNum = paymentSettings?.["kuraimi.south.number"] || "3167076083";
+                        const northName = paymentSettings?.["kuraimi.north.name"] || "عمرو خالد عبد المولى";
+                        const southName = paymentSettings?.["kuraimi.south.name"] || "عمرو خالد عبد المولى";
+                        const num = region === "north" ? northNum : southNum;
+                        const holderName = region === "north" ? northName : southName;
+                        return (
+                          <>
+                            <div className="text-2xl font-bold text-gold text-center tracking-widest bg-black/50 py-4 rounded-xl border border-gold/20" dir="ltr">
+                              {num}
+                            </div>
+                            <p className="text-center text-sm mt-2 font-medium">{ts.accountNameLabel}: <span className="text-gold">{holderName}</span></p>
+                          </>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-bold mb-2">{ts.jaibNumber}:</p>
+                      {(() => {
+                        const jaibNum = paymentSettings?.["jaib.number"] || "";
+                        const jaibHolderName = paymentSettings?.["jaib.name"] || "";
+                        return jaibNum ? (
+                          <>
+                            <div className="text-2xl font-bold text-red-400 text-center tracking-widest bg-black/50 py-4 rounded-xl border border-red-400/20" dir="ltr">
+                              {jaibNum}
+                            </div>
+                            {jaibHolderName && (
+                              <p className="text-center text-sm mt-2 font-medium">{ts.accountNameLabel}: <span className="text-red-400">{jaibHolderName}</span></p>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-center py-4 px-3 rounded-xl border border-red-400/20 bg-red-500/5">
+                            <p className="text-sm text-red-400/80 font-medium">{ts.jaibNoNumber}</p>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
                   <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <p className="text-xs text-amber-300 text-center font-medium">
                       {ts.transferWarning}
@@ -962,7 +1022,9 @@ export default function Subscription() {
 
                 <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
                   <p className="text-xs text-blue-400 font-bold text-center mb-1">{ts.payStep2Title}</p>
-                  <p className="text-[11px] text-center text-muted-foreground">{ts.payStep2Sub}</p>
+                  <p className="text-[11px] text-center text-muted-foreground">
+                    {paymentMethod === "jaib" ? ts.payStep2JaibSub : ts.payStep2Sub}
+                  </p>
                 </div>
 
                 <div className="space-y-3">
@@ -970,7 +1032,7 @@ export default function Subscription() {
                     {ts.senderNameLabel}
                   </Label>
                   <p className="text-xs text-muted-foreground -mt-1">
-                    {ts.senderNameHint}
+                    {paymentMethod === "jaib" ? ts.senderNameHintJaib : ts.senderNameHint}
                   </p>
                   <Input
                     placeholder={ts.senderNamePlaceholder}

@@ -32,6 +32,7 @@ import { writeGemLedger } from "../lib/gem-ledger";
 import { purchaseV4GemsTx } from "../lib/v4-gem-wallet";
 import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
 import { requireSameOriginCsrf } from "../lib/csrf";
+import { sendFcmToTokens } from "../lib/fcm";
 import {
   computeGemsForPrice,
   computePricingBreakdown,
@@ -50,6 +51,31 @@ import {
 } from "../lib/pricing-formula";
 
 const router: IRouter = Router();
+
+// ── FCM helper — notify all admin devices of a new subscription request ───────
+async function sendFcmToAdmins(
+  subjectName: string,
+  userName: string,
+  planType: string,
+): Promise<void> {
+  try {
+    const rows = await db.execute(sql`
+      SELECT DISTINCT aft.token
+      FROM admin_fcm_tokens aft
+      JOIN users u ON u.id = aft.user_id
+      WHERE u.role = 'admin'
+    `);
+    const tokens = (rows.rows as { token: string }[]).map((r) => r.token);
+    if (tokens.length === 0) return;
+    await sendFcmToTokens(tokens, {
+      title: "طلب اشتراك جديد 🔔",
+      body: `${userName || "مستخدم"} — ${subjectName || "تخصص"} (${planType})`,
+      data: { type: "subscription_request", url: "/admin/subscriptions" },
+    });
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[fcm] sendFcmToAdmins failed");
+  }
+}
 
 // NOTE: Gem amounts are no longer hardcoded. They are computed dynamically from
 // the price paid (YER) and region via `computeGemsForPrice` in pricing-formula.ts.
@@ -506,6 +532,8 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
 
       const finalPrice = computeFinalPrice(basePrice, percent);
 
+      const rawPaymentMethod = typeof req.body?.paymentMethod === "string" && req.body.paymentMethod === "jaib" ? "jaib" : "kuraimi";
+
       const [request] = await tx.insert(subscriptionRequestsTable).values({
         userId,
         userEmail: user?.email ?? "",
@@ -516,6 +544,7 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
         subjectId,
         subjectName: subjectName ?? null,
         notes: parsed.data.notes ?? null,
+        paymentMethod: rawPaymentMethod,
         status: "pending",
         discountCodeId: discountCodeRow?.id ?? null,
         discountCode: welcomeApplied ? WELCOME_OFFER_LABEL : (discountCodeRow?.code ?? null),
@@ -528,6 +557,14 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
     });
 
     res.status(201).json(created);
+
+    // ── إشعار FCM للأدمن (best-effort، لا يؤثر على الاستجابة) ────────────────
+    sendFcmToAdmins(
+      created.subjectName ?? subjectName ?? created.subjectId ?? "",
+      created.userName ?? created.userEmail ?? "",
+      created.planType ?? "",
+    ).catch(() => {});
+
   } catch (e: any) {
     if (e?.message === "INVALID_CODE") {
       res.status(400).json({ error: "كود الخصم غير موجود" });

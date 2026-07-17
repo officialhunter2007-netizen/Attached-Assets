@@ -1,5 +1,10 @@
 # See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
+# Android keystores — لا تُرفع للـ git أبداً (احتفظ بنسخ في GitHub Secrets)
+keystores/*.jks
+keystores/*.p12
+*.keystore
+
 # compiled output
 dist
 tmp

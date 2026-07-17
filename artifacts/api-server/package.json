@@ -30,6 +30,7 @@
     "pino-http": "^10.1.0",
     "playwright": "^1.61.1",
     "unpdf": "^1.6.0",
+    "web-push": "^3.6.7",
     "ws": "^8.17.0",
     "xss": "^1.0.15",
     "zod": "catalog:"
@@ -40,6 +41,7 @@
     "@types/express": "^4.17.21",
     "@types/multer": "^1.4.11",
     "@types/node": "catalog:",
+    "@types/web-push": "^3.6.4",
     "esbuild": "^0.21.4",
     "esbuild-plugin-pino": "^2.1.0",
     "pino-pretty": "^11.2.1",

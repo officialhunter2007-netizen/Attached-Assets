@@ -17,6 +17,7 @@ export const subscriptionRequestsTable = pgTable("subscription_requests", {
   activationCode: text("activation_code"),
   notes: text("notes"),
   adminNote: text("admin_note"),
+  paymentMethod: text("payment_method").notNull().default("kuraimi"),
   discountCodeId: integer("discount_code_id"),
   discountCode: text("discount_code"),
   discountPercent: integer("discount_percent"),
