@@ -63,6 +63,8 @@ ADMIN_EMAILS = "officialhunter2007@gmail.com"
 UNLIMITED_ACCESS_EMAILS = "socanalyst38@gmail.com"
 LOG_LEVEL = "info"
 NODE_ENV = "development"
+VAPID_EMAIL = "mailto:admin@learnukhba.com"
+VAPID_PUBLIC_KEY = "BEPf-lfSIks27AR_JeltXow6wXdTPD8-I8XWXEP2mPsevnthbRAcA_wLZ3SGmZfE0tmiHQrSc_lK4osvRBrpPtQ"
 
 [userenv.production]
 APP_DOMAIN = "learnukhba.replit.app"

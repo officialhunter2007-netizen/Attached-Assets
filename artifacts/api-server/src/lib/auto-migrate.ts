@@ -1176,6 +1176,50 @@ const REQUIRED_TABLES: FullTableSpec[] = [
       `CREATE INDEX IF NOT EXISTS "idx_v4_unit_stories_specialty_unit" ON "v4_unit_stories" ("specialty_id", "unit_code")`,
     ],
   },
+  {
+    // Web Push subscriptions — one row per (user, device endpoint).
+    // specialty_ids / skill_ids are JSONB arrays for targeted broadcasts.
+    table: "push_subscriptions",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "push_subscriptions" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "endpoint" text NOT NULL,
+        "p256dh" text NOT NULL DEFAULT '',
+        "auth" text NOT NULL DEFAULT '',
+        "specialty_ids" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "current_level" text,
+        "current_unit_code" text,
+        "skill_ids" jsonb NOT NULL DEFAULT '[]'::jsonb,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW(),
+        "updated_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_push_subscriptions_user_endpoint" ON "push_subscriptions" ("user_id", "endpoint")`,
+      `CREATE INDEX IF NOT EXISTS "idx_push_subscriptions_user" ON "push_subscriptions" ("user_id")`,
+    ],
+  },
+  {
+    // Admin-sent push notification log — append-only history.
+    table: "notification_log",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "notification_log" (
+        "id" serial PRIMARY KEY,
+        "admin_id" integer NOT NULL,
+        "title" text NOT NULL,
+        "body" text NOT NULL DEFAULT '',
+        "url" text NOT NULL DEFAULT '/',
+        "target_filter" jsonb NOT NULL DEFAULT '{}'::jsonb,
+        "sent_count" integer NOT NULL DEFAULT 0,
+        "failed_count" integer NOT NULL DEFAULT 0,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE INDEX IF NOT EXISTS "idx_notification_log_admin" ON "notification_log" ("admin_id", "created_at")`,
+    ],
+  },
 ];
 
 // Best-effort: ensure the FTS index over `material_chunks.content_normalized`

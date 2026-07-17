@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "./lib/auth-context";
 import { LangProvider } from "./lib/lang-context";
 import { useAuth } from "./lib/use-auth";
-import { useEffect, useState, Component, type ReactNode } from "react";
+import { useEffect, useState, Component, useRef, type ReactNode } from "react";
 import NotFound from "@/pages/not-found";
 
 import Home from "@/pages/home";
