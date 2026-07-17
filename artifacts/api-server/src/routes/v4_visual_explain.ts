@@ -322,8 +322,10 @@ async function callMorphLLM(systemPrompt: string, userPrompt: string): Promise<s
       },
       body: JSON.stringify({
         model:       MORPHLLM_MODEL,
-        max_tokens:  16000,
+        max_tokens:  32000,
         temperature: 0.7,
+        // Limit Gemini thinking budget so most tokens go to actual output
+        thinking: { type: "enabled", budget_tokens: 2000 },
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user",   content: userPrompt   },
