@@ -5,7 +5,7 @@
       "namespace": "android_app",
       "package_name": "com.learnukhba.student",
       "sha256_cert_fingerprints": [
-        "REPLACE_WITH_YOUR_SHA256_FINGERPRINT"
+        "DD:05:E6:2C:EB:1F:04:C6:04:CB:2D:55:70:EF:19:F8:23:D3:80:84:95:B0:51:C8:3E:6B:21:37:74:11:99:1B"
       ]
     }
   },
@@ -15,7 +15,7 @@
       "namespace": "android_app",
       "package_name": "com.learnukhba.admin",
       "sha256_cert_fingerprints": [
-        "REPLACE_WITH_YOUR_SHA256_FINGERPRINT"
+        "9B:97:46:13:91:F8:6E:4D:8B:91:93:29:FC:5A:46:9F:13:BD:E8:37:79:08:6F:1B:D0:C7:03:BF:37:90:C0:6B"
       ]
     }
   }

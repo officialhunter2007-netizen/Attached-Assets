@@ -55,10 +55,10 @@ jobs:
             -storepass android -keypass android \
             | grep "SHA256" || echo "(Debug keystore not found)"
           echo ""
-          echo "⚠️  لإنتاج TWA حقيقي، ضع هذه القيمة في:"
+          echo "⚠️  Fingerprint الإنتاج الفعلي موجود في:"
           echo "   artifacts/nukhba/public/.well-known/assetlinks.json"
 
-      - name: Upload Student APK
+      - name: Upload Student Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: nukhba-student-debug
@@ -97,7 +97,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace --info 2>&1 | tail -50
 
-      - name: Upload Admin APK
+      - name: Upload Admin Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: nukhba-admin-debug
@@ -107,20 +107,25 @@ jobs:
 
   # ── Release signing (يُفعَّل عند إضافة GitHub Secrets) ──────────────────
   #
+  # الـ keystores موجودة في: keystores/nukhba-student.jks و keystores/nukhba-admin.jks
+  # (لا تُرفع للـ git — موجودة في .gitignore)
+  #
   # لتفعيل بناء الإنتاج:
-  # 1. أنشئ keystore:
-  #    keytool -genkey -v -keystore nukhba.jks -alias nukhba -keyalg RSA -keysize 2048 -validity 10000
-  # 2. حوّله لـ base64:
-  #    base64 nukhba.jks
-  # 3. أضف GitHub Secrets في Settings → Secrets → Actions:
-  #    - KEYSTORE_BASE64: القيمة من الخطوة 2
-  #    - KEYSTORE_PASSWORD
-  #    - KEY_ALIAS: nukhba
-  #    - KEY_PASSWORD
-  # 4. أزل التعليق عن الـ job أدناه
+  # 1. حوّل الـ keystore لـ base64:
+  #    base64 -w 0 keystores/nukhba-student.jks
+  # 2. أضف GitHub Secrets في Settings → Secrets → Actions:
+  #    - STUDENT_KEYSTORE_BASE64: القيمة من الخطوة 1
+  #    - STUDENT_KEYSTORE_PASSWORD: nukhbaStudent2024
+  #    - STUDENT_KEY_ALIAS: nukhba-student
+  #    - STUDENT_KEY_PASSWORD: nukhbaStudent2024
+  #    - ADMIN_KEYSTORE_BASE64: (base64 -w 0 keystores/nukhba-admin.jks)
+  #    - ADMIN_KEYSTORE_PASSWORD: nukhbaAdmin2024
+  #    - ADMIN_KEY_ALIAS: nukhba-admin
+  #    - ADMIN_KEY_PASSWORD: nukhbaAdmin2024
+  # 3. أزل التعليق عن الـ job أدناه
 
   # build-release:
-  #   name: "🚀 Release APKs"
+  #   name: "🚀 Release APKs (signed)"
   #   runs-on: ubuntu-latest
   #   needs: [build-student, build-admin]
   #   if: github.ref == 'refs/heads/main'
@@ -131,24 +136,38 @@ jobs:
   #     - uses: gradle/actions/setup-gradle@v3
   #       with: { gradle-version: '8.5' }
   #     - uses: android-actions/setup-android@v3
-  #     - name: Decode keystore
-  #       run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > nukhba.jks
-  #     - name: Build Student Release
+  #
+  #     - name: Decode Student keystore
+  #       run: echo "${{ secrets.STUDENT_KEYSTORE_BASE64 }}" | base64 -d > nukhba-student.jks
+  #
+  #     - name: Build Student Release APK
   #       working-directory: apps/nukhba-student
   #       env:
-  #         KEYSTORE_PATH: ../../nukhba.jks
-  #         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-  #         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-  #         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+  #         KEYSTORE_PATH: ../../nukhba-student.jks
+  #         KEYSTORE_PASSWORD: ${{ secrets.STUDENT_KEYSTORE_PASSWORD }}
+  #         KEY_ALIAS: ${{ secrets.STUDENT_KEY_ALIAS }}
+  #         KEY_PASSWORD: ${{ secrets.STUDENT_KEY_PASSWORD }}
   #       run: chmod +x gradlew && ./gradlew assembleRelease
-  #     - name: Build Admin Release
+  #
+  #     - name: Print Student release fingerprint (verify matches assetlinks.json)
+  #       run: |
+  #         keytool -list -v -alias "${{ secrets.STUDENT_KEY_ALIAS }}" \
+  #           -keystore nukhba-student.jks \
+  #           -storepass "${{ secrets.STUDENT_KEYSTORE_PASSWORD }}" \
+  #           | grep "SHA256"
+  #
+  #     - name: Decode Admin keystore
+  #       run: echo "${{ secrets.ADMIN_KEYSTORE_BASE64 }}" | base64 -d > nukhba-admin.jks
+  #
+  #     - name: Build Admin Release APK
   #       working-directory: apps/nukhba-admin
   #       env:
-  #         KEYSTORE_PATH: ../../nukhba.jks
-  #         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-  #         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-  #         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+  #         KEYSTORE_PATH: ../../nukhba-admin.jks
+  #         KEYSTORE_PASSWORD: ${{ secrets.ADMIN_KEYSTORE_PASSWORD }}
+  #         KEY_ALIAS: ${{ secrets.ADMIN_KEY_ALIAS }}
+  #         KEY_PASSWORD: ${{ secrets.ADMIN_KEY_PASSWORD }}
   #       run: chmod +x gradlew && ./gradlew assembleRelease
+  #
   #     - uses: actions/upload-artifact@v4
   #       with:
   #         name: nukhba-release-apks

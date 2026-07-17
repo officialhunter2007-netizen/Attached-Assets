@@ -16,6 +16,17 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        release {
+            // GitHub Actions يقرأ هذه القيم من Environment Variables
+            // مصدرها GitHub Secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+            storeFile = System.getenv("KEYSTORE_PATH") ? file(System.getenv("KEYSTORE_PATH")) : null
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("KEY_ALIAS") ?: "nukhba-admin"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix ".debug"
@@ -25,6 +36,7 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig = System.getenv("KEYSTORE_PATH") ? signingConfigs.release : null
         }
     }
 
