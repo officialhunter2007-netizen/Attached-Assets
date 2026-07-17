@@ -340,14 +340,24 @@ async function callMorphLLM(systemPrompt: string, userPrompt: string): Promise<s
   }
 
   const data = await response.json() as {
-    choices?: { message?: { content?: string } }[];
+    choices?: { message?: { content?: string | { type: string; text: string }[] } }[];
     error?:   { message: string };
   };
 
-  if (data.error) throw new Error(`Morph LLM خطأ: ${data.error.message}`);
+  if (data.error) throw new Error(`Visual LLM خطأ: ${(data.error as any).message}`);
 
-  const text = data.choices?.[0]?.message?.content ?? "";
-  if (!text) throw new Error("Morph LLM أرجع رداً فارغاً");
+  // Gemini (and some models) returns content as an array of parts — normalise to string
+  const raw = data.choices?.[0]?.message?.content;
+  const text = typeof raw === "string"
+    ? raw
+    : Array.isArray(raw)
+      ? raw.filter((p: any) => p.type === "text").map((p: any) => p.text).join("")
+      : "";
+
+  if (!text) {
+    console.error("[visual-explain] Empty response. Full data:", JSON.stringify(data).slice(0, 600));
+    throw new Error("النموذج أرجع رداً فارغاً — حاول مرة أخرى");
+  }
 
   return text; // raw model output — caller parses sections and assembles HTML
 }
@@ -361,7 +371,7 @@ async function generateVisualHtml(message: string): Promise<string> {
     return cached;
   }
 
-  console.log("[visual-explain] Calling Morph LLM / morph-v3-fast…");
+  console.log(`[visual-explain] Calling ${MORPHLLM_MODEL} via OpenRouter…`);
   const t0 = Date.now();
 
   const { system, user } = buildTaskPrompt(message);
