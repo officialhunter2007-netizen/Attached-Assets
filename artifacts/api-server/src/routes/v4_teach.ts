@@ -109,6 +109,99 @@ function excerptV4(text: string, maxChars = 16000): string {
   return s.slice(0, mid) + "\n…[مقتطع]\n" + s.slice(s.length - (maxChars - mid));
 }
 
+// ── Thinking-leak stripper ────────────────────────────────────────────────────
+// The model occasionally leaks its internal analysis ("تحليل:") and constraints
+// ("القيود:") as a preamble BEFORE the actual teaching response. Even though the
+// prompt now explicitly forbids this, this stateful streaming filter acts as a
+// deterministic safety net so it can NEVER reach the student.
+//
+// Usage: one instance per request. Call .filter(chunk) on every SSE chunk —
+// returns "" while buffering a suspected preamble, or the clean content once
+// the preamble (if any) has been detected and dropped.
+// Call .flush() at end-of-stream to release any buffered non-thinking content.
+//
+// After the full stream, call stripThinkingLeakFromText(fullText) to clean the
+// persisted transcript too.
+
+const THINKING_MARKER_RE = /[\[【]?\s*(?:🧠\s*)?(?:تحليل|تحليل:)|(?:^|\n)القيود\s*:/;
+const CHECK_AFTER_CHARS  = 60;    // start checking once we have this many chars
+const MAX_PREAMBLE_CHARS = 6000;  // safety cap: stop stripping if block exceeds this
+
+function createThinkingLeakStripper() {
+  let buf = "";
+  let decided = false;   // have we determined the mode?
+  let stripping = false; // are we actively stripping a thinking block?
+
+  function tryReleaseAfterPreamble(): string {
+    if (buf.length > MAX_PREAMBLE_CHARS) {
+      // Safety: preamble is unreasonably long — give up stripping
+      decided = true; stripping = false;
+      const out = buf; buf = "";
+      return out;
+    }
+    // The preamble ends after القيود section, signalled by \n\n
+    const qIdx = buf.lastIndexOf("القيود");
+    if (qIdx > -1) {
+      const endIdx = buf.indexOf("\n\n", qIdx + "القيود".length);
+      if (endIdx > -1) {
+        const real = buf.slice(endIdx + 2);
+        buf = ""; decided = true; stripping = false;
+        return real;
+      }
+    }
+    // Fallback: double-newline well into the buffer after clear thinking content
+    const nnIdx = buf.lastIndexOf("\n\n");
+    if (nnIdx > 200) {
+      const after = buf.slice(nnIdx + 2).trimStart();
+      if (after.length > 20 && !THINKING_MARKER_RE.test(after)) {
+        buf = ""; decided = true; stripping = false;
+        return after;
+      }
+    }
+    return ""; // still buffering
+  }
+
+  return {
+    filter(chunk: string): string {
+      if (decided && !stripping) return chunk; // pass-through
+      buf += chunk;
+      if (decided && stripping) return tryReleaseAfterPreamble();
+      // Not yet decided — wait until we have enough chars
+      if (buf.length < CHECK_AFTER_CHARS) return "";
+      decided = true;
+      stripping = THINKING_MARKER_RE.test(buf);
+      if (!stripping) {
+        const out = buf; buf = "";
+        return out; // not a thinking block — release and switch to pass-through
+      }
+      return tryReleaseAfterPreamble();
+    },
+    flush(): string {
+      // End of stream: release whatever is left
+      const out = buf; buf = "";
+      if (!decided) return out;  // short response never triggered the check
+      if (stripping) return "";  // stream ended inside a thinking block — drop it
+      return out;
+    },
+  };
+}
+
+/** Strip any leading thinking-leak preamble from the fully accumulated text
+ *  (used to clean `fullText` before persistence). */
+function stripThinkingLeakFromText(text: string): string {
+  if (!THINKING_MARKER_RE.test(text.slice(0, 600))) return text;
+  // Find where القيود section ends
+  const qIdx = text.lastIndexOf("القيود");
+  if (qIdx > -1 && qIdx < 4000) {
+    const endIdx = text.indexOf("\n\n", qIdx + "القيود".length);
+    if (endIdx > -1) return text.slice(endIdx + 2);
+  }
+  // Fallback: first double-newline after a significant preamble
+  const nnIdx = text.indexOf("\n\n");
+  if (nnIdx > 100 && nnIdx < 4000) return text.slice(nnIdx + 2);
+  return text;
+}
+
 function getUserId(req: Request): number | null {
   return ((req as any).session as any)?.userId ?? null;
 }
@@ -941,6 +1034,11 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       return safeOutput;
     };
 
+    // Thinking-leak stripper: one stateful instance per turn. Detects and drops
+    // any "تحليل: / القيود:" preamble the model might still write despite the
+    // prompt prohibition — the student must never see internal chain-of-thought.
+    const thinkingStripper = createThinkingLeakStripper();
+
     const result = await streamGeminiTeaching({
       systemPrompt,
       messages: geminiMessages,
@@ -952,12 +1050,16 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       logTag: `v4-teach:${slug}:${lessonCode}`,
       onChunk: (text) => {
         if (!text) return;
-        fullText += text;
+        fullText += text; // always accumulate raw (for protocol-tag parsing)
+        // Strip any thinking-leak preamble FIRST — returns "" while buffering
+        // the preamble, or the safe text once the preamble (if any) has been dropped.
+        const safe = thinkingStripper.filter(text);
+        if (!safe) return; // still buffering suspected thinking preamble
         // Extract IMAGE/PHOTO tags first (turns `[[PHOTO: query]]` →
         // `[[IMAGE:id]]` and holds back partial tags; IMAGE tags are always
         // dropped), strip any SCENE tag, THEN strip protocol tags from the
         // prose the student sees. stripProtocolTags leaves `[[IMAGE:id]]` untouched.
-        const display = stripProtocolTags(stripSceneTag(processImageTags(text)));
+        const display = stripProtocolTags(stripSceneTag(processImageTags(safe)));
         if (display && !res.writableEnded) {
           try {
             res.write(`data: ${JSON.stringify({ content: display })}\n\n`);
@@ -1000,14 +1102,30 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       }
     }
 
+    // Flush any content held back by the thinking-leak stripper. If the model
+    // wrote a thinking preamble that never finished (no double-newline after
+    // القيود), flush() returns "" — nothing more to send. If the preamble was
+    // detected early and real content was already released chunk-by-chunk,
+    // flush() also returns "". Only emits when a short response never triggered
+    // the check (< CHECK_AFTER_CHARS total) and the buffer was never flushed.
+    const thinkingFlush = thinkingStripper.flush();
+    if (thinkingFlush && !res.writableEnded) {
+      const flushDisplay = stripProtocolTags(thinkingFlush);
+      if (flushDisplay) {
+        try {
+          res.write(`data: ${JSON.stringify({ content: flushDisplay })}\n\n`);
+        } catch {}
+      }
+    }
+
     // `fullText` (the raw, un-stripped model output) is what gets persisted
-    // to ai_teacher_messages and re-rendered verbatim on a page reload —
-    // v4-protocol-tags.ts has no SCENE handling, so stripProtocolTags(fullText)
-    // below would otherwise leave a full raw `[[SCENE: …]]` tag in the saved
-    // transcript even though the live stream never showed it. Scrub it here,
-    // unconditionally (SCENE is retired), once, on the complete text so
-    // persistence matches what the student saw.
+    // to ai_teacher_messages and re-rendered verbatim on a page reload.
+    // Clean two known noise sources so persistence matches what the student saw:
+    //   1. SCENE tags (retired mechanism — drop unconditionally).
+    //   2. Thinking-leak preambles ("تحليل: / القيود:") — strip via the same
+    //      detection logic so saved transcripts are as clean as the live stream.
     fullText = fullText.replace(/\[\[SCENE:[\s\S]*?\]\]/gi, "");
+    fullText = stripThinkingLeakFromText(fullText);
 
     // Let every per-image pipeline finish: each one self-bills its fal spend
     // (idempotently) and emits imageReady. Awaiting here means the teaching
