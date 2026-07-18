@@ -371,4 +371,39 @@ function buildWhereClause(p: FilterParams): string {
   }
 }
 
+// ── sendVapidToAdmins — Web Push للمشرفين (best-effort) ──────────────────────
+export async function sendVapidToAdmins(
+  title: string,
+  body: string,
+  url = "/admin",
+): Promise<void> {
+  if (!vapidReady) return;
+  try {
+    const rows = await db.execute(sql`
+      SELECT ps.endpoint, ps.p256dh, ps.auth
+      FROM push_subscriptions ps
+      JOIN users u ON u.id = ps.user_id
+      WHERE u.role = 'admin'
+    `);
+    const subs = (rows as any).rows ?? rows ?? [];
+    await Promise.allSettled(
+      subs.map(async (s: any) => {
+        const ep = s.endpoint as string;
+        try {
+          await webpush.sendNotification(
+            { endpoint: ep, keys: { p256dh: s.p256dh, auth: s.auth } },
+            JSON.stringify({ title, body, url, icon: "/icons/icon-192.png" }),
+          );
+        } catch (err: any) {
+          if (err?.statusCode === 410 || err?.statusCode === 404) {
+            await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${ep}`).catch(() => {});
+          }
+        }
+      }),
+    );
+  } catch (e: any) {
+    console.warn("[push] sendVapidToAdmins failed:", e?.message);
+  }
+}
+
 export default router;
