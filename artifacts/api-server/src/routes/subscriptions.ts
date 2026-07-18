@@ -34,6 +34,7 @@ import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
 import { requireSameOriginCsrf } from "../lib/csrf";
 import { sendFcmToTokens } from "../lib/fcm";
 import { sendExpoToAdmins, sendExpoToStudent } from "./expo_push_tokens";
+import { sendVapidToAdmins } from "./push_notifications";
 import {
   computeGemsForPrice,
   computePricingBreakdown,
@@ -571,6 +572,15 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
       created.subjectName ?? subjectName ?? created.subjectId ?? "",
       created.userName ?? created.userEmail ?? "",
       created.planType ?? "",
+    ).catch(() => {});
+
+    // ── Web Push (Chrome) للأدمن ──────────────────────────────────────────────
+    const subjectLabel = created.subjectName ?? subjectName ?? created.subjectId ?? "";
+    const studentLabel = created.userName ?? created.userEmail ?? "";
+    sendVapidToAdmins(
+      "طلب اشتراك جديد 🔔",
+      `${studentLabel} — ${subjectLabel}`,
+      "/admin",
     ).catch(() => {});
 
   } catch (e: any) {

@@ -46,6 +46,43 @@ function getNotifIcon(type: string) {
   return "🔔";
 }
 
+// ── Push subscribe helper (يُستدعى عند نقرة المستخدم) ────────────────────────
+async function subscribeToPush(): Promise<"granted" | "denied" | "error"> {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return "error";
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return "denied";
+
+    const keyRes = await fetch("/api/push/vapid-public-key", { credentials: "include" });
+    const { publicKey } = await keyRes.json();
+    if (!publicKey) return "error";
+
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+
+    // إلغاء القديم المنتهي إن وُجد
+    if (sub?.expirationTime != null && sub.expirationTime < Date.now() + 60_000) {
+      await sub.unsubscribe();
+      sub = null;
+    }
+    if (!sub) {
+      const raw = (s: string) => {
+        const p = "=".repeat((4 - (s.length % 4)) % 4);
+        const b = (s + p).replace(/-/g, "+").replace(/_/g, "/");
+        return Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
+      };
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw(publicKey) });
+    }
+
+    await fetch("/api/push/subscribe", {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+      body: JSON.stringify({ subscription: sub.toJSON(), meta: {} }),
+    });
+    return "granted";
+  } catch { return "error"; }
+}
+
 export function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
@@ -53,6 +90,24 @@ export function NotificationsBell() {
   const prevUnreadRef = useRef(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const [, navigate] = useLocation();
+
+  // حالة الإشعارات
+  const [pushStatus, setPushStatus] = useState<"unknown" | "granted" | "denied" | "unsupported">("unknown");
+  const [subscribing, setSubscribing] = useState(false);
+
+  useEffect(() => {
+    if (!("Notification" in window)) { setPushStatus("unsupported"); return; }
+    if (Notification.permission === "granted") setPushStatus("granted");
+    else if (Notification.permission === "denied") setPushStatus("denied");
+    else setPushStatus("unknown");
+  }, []);
+
+  const handleEnablePush = async () => {
+    setSubscribing(true);
+    const result = await subscribeToPush();
+    setPushStatus(result === "granted" ? "granted" : result === "denied" ? "denied" : "unknown");
+    setSubscribing(false);
+  };
 
   const fetchNotifs = useCallback(async () => {
     try {
@@ -176,6 +231,35 @@ export function NotificationsBell() {
                 </button>
               )}
             </div>
+
+            {/* زر تفعيل إشعارات الهاتف/المتصفح */}
+            {pushStatus !== "unsupported" && pushStatus !== "granted" && (
+              <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                <button
+                  onClick={handleEnablePush}
+                  disabled={subscribing || pushStatus === "denied"}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all"
+                  style={{
+                    background: pushStatus === "denied"
+                      ? "rgba(239,68,68,0.08)"
+                      : "rgba(245,158,11,0.12)",
+                    border: pushStatus === "denied"
+                      ? "1px solid rgba(239,68,68,0.25)"
+                      : "1px solid rgba(245,158,11,0.3)",
+                    color: pushStatus === "denied" ? "#f87171" : "#F59E0B",
+                    opacity: subscribing ? 0.7 : 1,
+                  }}
+                >
+                  {subscribing ? (
+                    "جاري التفعيل…"
+                  ) : pushStatus === "denied" ? (
+                    "🔕 الإشعارات محظورة — افتح إعدادات المتصفح"
+                  ) : (
+                    "🔔 فعّل إشعارات المتصفح"
+                  )}
+                </button>
+              </div>
+            )}
 
             <div className="max-h-80 overflow-y-auto">
               {notifs.length === 0 ? (
