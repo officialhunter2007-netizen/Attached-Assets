@@ -720,6 +720,59 @@ export default function V4Lesson() {
     const id = setInterval(check, 30_000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
+
+  // Pending visual-explain request (background polling — survives overlay close)
+  const [pendingVERequest, setPendingVERequest] = useState<{ requestId: string; html?: string } | null>(null);
+  useEffect(() => {
+    if (!pendingVERequest?.requestId || pendingVERequest.html) return;
+    let cancelled = false;
+    const { requestId } = pendingVERequest;
+    const POLL_MS = 5_000;
+    const DEADLINE = Date.now() + 15 * 60_000;
+    (async () => {
+      while (!cancelled && Date.now() < DEADLINE) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        if (cancelled) break;
+        try {
+          const r = await fetch(`/api/student/visual-explain/result/${requestId}`, { credentials: "include" });
+          if (!r.ok) continue;
+          const d = await r.json();
+          if (d.status === "done") {
+            if (!cancelled) {
+              setPendingVERequest({ requestId, html: d.html });
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: d.html, loading: false, error: null, mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+          if (d.status === "error") {
+            if (!cancelled) {
+              setPendingVERequest(null);
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: null, loading: false, error: d.error || "تعذّر إنشاء الشرح البصري.", mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+        } catch { /* keep polling */ }
+      }
+      if (!cancelled) {
+        setPendingVERequest(null);
+        setVisualOverlay(prev =>
+          prev?.mode === "admin" && prev.loading
+            ? { html: null, loading: false, error: "انتهت مهلة الانتظار (15 دقيقة) — حاول مرة أخرى", mode: "admin" }
+            : prev
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingVERequest?.requestId]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -777,12 +830,10 @@ export default function V4Lesson() {
   }, []);
 
   // ── Visual Explain ────────────────────────────────────────────────────────
-  // Sends a request to the admin queue. A supervisor claims it, pastes HTML,
-  // and the student polls for the result (up to 15 minutes).
+  // Submits the request to the admin queue. Polling runs in the background
+  // useEffect above (survives overlay close) and auto-shows a toast when ready.
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null, mode: 'admin' });
-    const POLL_MS  = 5_000;
-    const DEADLINE = Date.now() + 15 * 60_000; // 15 min max
     try {
       const startRes = await fetch("/api/student/visual-explain/request", {
         method: "POST",
@@ -795,22 +846,7 @@ export default function V4Lesson() {
         throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
       }
       const { requestId } = await startRes.json();
-
-      while (Date.now() < DEADLINE) {
-        await new Promise(r => setTimeout(r, POLL_MS));
-        const statusRes = await fetch(`/api/student/visual-explain/result/${requestId}`, {
-          credentials: "include",
-        });
-        if (!statusRes.ok) {
-          const d = await statusRes.json().catch(() => ({}));
-          throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
-        }
-        const data = await statusRes.json();
-        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null, mode: 'admin' }); return; }
-        if (data.status === "error") { throw new Error(data.error || "تعذّر إنشاء الشرح البصري."); }
-        // "pending" or "claimed" → keep polling
-      }
-      throw new Error("انتهت مهلة الانتظار (15 دقيقة) — حاول مرة أخرى");
+      setPendingVERequest({ requestId }); // background useEffect takes over polling
     } catch (err) {
       setVisualOverlay({
         html: null, loading: false,
@@ -1999,6 +2035,34 @@ export default function V4Lesson() {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {/* ── Visual Explain Ready Toast ─────────────────────────────────────── */}
+      {pendingVERequest?.html && !visualOverlay && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
+          style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", direction: "rtl", minWidth: "260px" }}
+        >
+          <Sparkles className="w-4 h-4 text-black/80 shrink-0" />
+          <span className="font-bold text-black text-sm flex-1">الشرح البصري جاهز!</span>
+          <button
+            type="button"
+            onClick={() => {
+              setVisualOverlay({ html: pendingVERequest.html!, loading: false, error: null, mode: "admin" });
+              setPendingVERequest(null);
+            }}
+            className="px-3 py-1 rounded-xl bg-black/20 hover:bg-black/35 text-black font-bold text-sm transition-colors"
+          >
+            عرض
+          </button>
+          <button
+            type="button"
+            onClick={() => setPendingVERequest(null)}
+            className="w-6 h-6 flex items-center justify-center rounded-full bg-black/15 hover:bg-black/30 transition-colors shrink-0"
+            aria-label="إغلاق"
+          >
+            <X className="w-3.5 h-3.5 text-black/80" />
+          </button>
         </div>
       )}
     </>
