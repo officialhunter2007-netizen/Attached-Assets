@@ -677,6 +677,8 @@ export default function V4Lesson() {
   const userId = user ? String(user.id) : null;
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const messagesRef = useRef<ChatMsg[]>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   // Live FLUX image state, keyed by the id in `[[IMAGE:id]]` markers. The
   // backend streams `imagePlaceholder` (spinner) then `imageReady` (same-origin
   // URL); TeacherBubble swaps the real <img> in once a marker's status is ready.
@@ -835,11 +837,20 @@ export default function V4Lesson() {
   const handleVisualExplain = useCallback(async (messageContent: string) => {
     setVisualOverlay({ html: null, loading: true, error: null, mode: 'admin' });
     try {
+      // آخر 5 رسائل قبل الرسالة المستهدفة (سياق للمشرف) — قراءة من ref لتجنب الـ stale closure
+      const allMsgs = messagesRef.current;
+      const targetIdx = allMsgs.findIndex(m => m.content === messageContent);
+      const sliceEnd = targetIdx >= 0 ? targetIdx : allMsgs.length;
+      const contextMsgs = allMsgs.slice(Math.max(0, sliceEnd - 5), sliceEnd).map(m => ({
+        role: m.role,
+        content: m.content ?? "",
+      }));
+
       const startRes = await fetch("/api/student/visual-explain/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ messageText: messageContent }),
+        body: JSON.stringify({ messageText: messageContent, context: contextMsgs }),
       });
       if (!startRes.ok) {
         const d = await startRes.json().catch(() => ({}));

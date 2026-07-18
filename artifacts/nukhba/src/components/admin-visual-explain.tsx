@@ -11,14 +11,17 @@ import { Badge } from "@/components/ui/badge";
 import {
   Eye, Copy, CheckCircle2, Loader2, RefreshCw,
   Clock, User, BookOpen, AlertTriangle, Trash2,
-  Power, PowerOff,
+  Power, PowerOff, ChevronDown, ChevronUp, MessageSquare,
 } from "lucide-react";
+
+type ContextMsg = { role: "user" | "assistant"; content: string };
 
 type VERequest = {
   id: number;
   student_name: string;
   message_text: string;
   subject_name: string;
+  context: ContextMsg[] | null;
   status: "pending" | "claimed" | "completed";
   claimed_by: number | null;
   claimer_name: string | null;
@@ -99,6 +102,7 @@ export function AdminVisualExplain({
   const [copied,      setCopied]     = useState<Record<number, boolean>>({});
   const [deleting,    setDeleting]   = useState<Record<number, boolean>>({});
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [expandedCtx, setExpandedCtx] = useState<Record<number, boolean>>({});
 
   const handleClaim = async (id: number) => {
     setClaiming(p => ({ ...p, [id]: true }));
@@ -301,6 +305,54 @@ export function AdminVisualExplain({
                     : <Copy className="w-3.5 h-3.5" />}
                 </button>
               </div>
+
+              {/* سياق المحادثة (قابل للطي) */}
+              {req.context && req.context.length > 0 && (
+                <div className="rounded-xl overflow-hidden"
+                     style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <button
+                    onClick={() => setExpandedCtx(p => ({ ...p, [req.id]: !p[req.id] }))}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs text-white/50 hover:text-white/75 transition-colors"
+                    style={{ background: "rgba(255,255,255,0.03)" }}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      سياق المحادثة ({req.context.length} رسائل)
+                    </span>
+                    {expandedCtx[req.id]
+                      ? <ChevronUp className="w-3.5 h-3.5" />
+                      : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                  {expandedCtx[req.id] && (
+                    <div className="px-3 pb-3 pt-1 space-y-2"
+                         style={{ background: "rgba(0,0,0,0.25)" }}>
+                      {req.context.map((msg, i) => (
+                        <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                          <div
+                            className="max-w-[85%] rounded-lg px-3 py-1.5 text-xs leading-relaxed whitespace-pre-wrap"
+                            style={msg.role === "user" ? {
+                              background: "rgba(245,158,11,0.12)",
+                              border: "1px solid rgba(245,158,11,0.2)",
+                              color: "rgba(255,255,255,0.8)",
+                            } : {
+                              background: "rgba(255,255,255,0.05)",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              color: "rgba(255,255,255,0.65)",
+                            }}
+                          >
+                            <span className="block text-[10px] mb-1 opacity-50 font-semibold">
+                              {msg.role === "user" ? "الطالب" : "المعلم"}
+                            </span>
+                            {msg.content.length > 400
+                              ? msg.content.slice(0, 400) + "…"
+                              : msg.content}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* أزرار العمل */}
               {!isCompleted && (

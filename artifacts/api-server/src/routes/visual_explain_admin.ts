@@ -32,6 +32,7 @@ async function ensureTables(): Promise<void> {
       student_name TEXT NOT NULL DEFAULT '',
       message_text TEXT NOT NULL,
       subject_name TEXT NOT NULL DEFAULT '',
+      context      JSONB,
       status       TEXT NOT NULL DEFAULT 'pending',
       claimed_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
       claimed_at   TIMESTAMPTZ,
@@ -39,6 +40,10 @@ async function ensureTables(): Promise<void> {
       completed_at TIMESTAMPTZ,
       created_at   TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+  // backfill column for existing tables
+  await db.execute(sql`
+    ALTER TABLE visual_explain_requests ADD COLUMN IF NOT EXISTS context JSONB
   `);
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS ver_status_idx ON visual_explain_requests(status)
@@ -83,7 +88,7 @@ router.post("/student/visual-explain/request", async (req: any, res: any): Promi
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { messageText, subjectName = "" } = req.body ?? {};
+  const { messageText, subjectName = "", context } = req.body ?? {};
   if (!messageText || typeof messageText !== "string") {
     res.status(400).json({ error: "messageText مطلوب" }); return;
   }
@@ -95,9 +100,19 @@ router.post("/student/visual-explain/request", async (req: any, res: any): Promi
     const subName = (subjectName || "").slice(0, 120);
     const msgText = messageText.slice(0, 2000);
 
+    // context: آخر 5 رسائل من المحادثة (مصفوفة JSON اختيارية)
+    let contextJson: string | null = null;
+    if (Array.isArray(context) && context.length > 0) {
+      const cleaned = context.slice(-5).map((m: any) => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: typeof m.content === "string" ? m.content.slice(0, 1000) : "",
+      })).filter((m: any) => m.content);
+      if (cleaned.length > 0) contextJson = JSON.stringify(cleaned);
+    }
+
     const inserted = await db.execute(sql`
-      INSERT INTO visual_explain_requests (student_id, student_name, message_text, subject_name, status)
-      VALUES (${userId}, ${studentName}, ${msgText}, ${subName}, 'pending')
+      INSERT INTO visual_explain_requests (student_id, student_name, message_text, subject_name, context, status)
+      VALUES (${userId}, ${studentName}, ${msgText}, ${subName}, ${contextJson}::jsonb, 'pending')
       RETURNING id
     `);
     const requestId = (inserted as any).rows?.[0]?.id;
@@ -177,7 +192,7 @@ router.get("/admin/visual-explain/requests", async (req: any, res: any): Promise
   try {
     const rows = await db.execute(sql`
       SELECT r.id, r.student_name, r.message_text, r.subject_name,
-             r.status, r.claimed_by, r.claimed_at, r.created_at,
+             r.context, r.status, r.claimed_by, r.claimed_at, r.created_at,
              u.name AS claimer_name, u.email AS claimer_email
       FROM visual_explain_requests r
       LEFT JOIN users u ON u.id = r.claimed_by
