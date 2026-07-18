@@ -15,21 +15,6 @@
         android:theme="@style/Theme.NukhbaAdmin"
         android:usesCleartextTraffic="false">
 
-        <!--
-          تطبيق الأدمن يستخدم WebView بدلاً من TWA لمزيد من التحكم:
-          - يمنع فتح روابط خارجية
-          - يتحقق من أن المستخدم على صفحة /admin
-          - يدعم رفع الملفات والكاميرا وتشغيل الصوت
-        -->
-        <!-- FCM service — receives push notifications for new subscription requests -->
-        <service
-            android:name=".NukhbaFcmService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -41,7 +26,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep links لصفحة الأدمن -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
