@@ -16,14 +16,22 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const BATCH_SIZE    = 100; // الحد الأقصى لكل طلب
 
 export interface ExpoPushMessage {
-  title:  string;
-  body:   string;
+  title:    string;
+  body:     string;
   /** بيانات إضافية تصل للتطبيق عند النقر على الإشعار */
-  data?:  Record<string, string>;
+  data?:    Record<string, string>;
   /** رابط يُفتح في WebView عند النقر */
-  url?:   string;
-  sound?: "default" | null;
-  badge?: number;
+  url?:     string;
+  sound?:   "default" | null;
+  badge?:   number;
+  /** لون خلفية الأيقونة في Android */
+  color?:   string;
+  /** الأولوية — high يُنبّه فوراً */
+  priority?: "default" | "normal" | "high";
+  /** قناة Android */
+  channelId?: string;
+  /** صورة مصغّرة تظهر في الإشعار (رابط عام) */
+  imageUrl?: string;
 }
 
 export interface ExpoPushResult {
@@ -59,11 +67,15 @@ export async function sendExpoPushToTokens(
   for (let i = 0; i < valid.length; i += BATCH_SIZE) {
     const batch = valid.slice(i, i + BATCH_SIZE).map((to) => ({
       to,
-      title:  message.title,
-      body:   message.body,
+      title:     message.title,
+      body:      message.body,
       data,
-      sound:  message.sound ?? "default",
-      ...(message.badge !== undefined ? { badge: message.badge } : {}),
+      sound:     message.sound ?? "default",
+      priority:  message.priority  ?? "high",
+      channelId: message.channelId ?? "nukhba",
+      color:     message.color     ?? "#F59E0B",
+      ...(message.badge    !== undefined ? { badge:    message.badge    } : {}),
+      ...(message.imageUrl !== undefined ? { imageUrl: message.imageUrl } : {}),
     }));
 
     try {
