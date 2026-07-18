@@ -96,3 +96,15 @@ id = "hXmub5c7QzipnuWVLAoIO"
 uri = "file://scripts/food-engineering-instruction-prompt.md"
 type = "text"
 title = "هندسة الغذاء — Prompt"
+
+[[outputs]]
+id = "ScVyJLi-6JyIVJOpZ2gdW"
+uri = "file://nukhba-student.apk"
+type = "unspecified"
+title = "نُخبة — تطبيق الطالب (APK)"
+
+[[outputs]]
+id = "exf_CoHcRhXqLyE-o6k4P"
+uri = "file://nukhba-admin.apk"
+type = "unspecified"
+title = "نُخبة — تطبيق الأدمن (APK)"
