@@ -14,7 +14,7 @@ import {
   Power, PowerOff, ChevronDown, ChevronUp, MessageSquare,
 } from "lucide-react";
 
-type ContextMsg = { role: "user" | "assistant"; content: string };
+type ContextMsg = { role: "user" | "assistant"; content: string; isTarget?: boolean };
 
 type VERequest = {
   id: number;
@@ -330,7 +330,12 @@ export function AdminVisualExplain({
                         <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                           <div
                             className="max-w-[85%] rounded-lg px-3 py-1.5 text-xs leading-relaxed whitespace-pre-wrap"
-                            style={msg.role === "user" ? {
+                            style={msg.isTarget ? {
+                              background: "rgba(245,158,11,0.14)",
+                              border: "2px solid rgba(245,158,11,0.7)",
+                              color: "rgba(255,255,255,0.9)",
+                              boxShadow: "0 0 12px rgba(245,158,11,0.2)",
+                            } : msg.role === "user" ? {
                               background: "rgba(245,158,11,0.12)",
                               border: "1px solid rgba(245,158,11,0.2)",
                               color: "rgba(255,255,255,0.8)",
@@ -340,8 +345,9 @@ export function AdminVisualExplain({
                               color: "rgba(255,255,255,0.65)",
                             }}
                           >
-                            <span className="block text-[10px] mb-1 opacity-50 font-semibold">
-                              {msg.role === "user" ? "الطالب" : "المعلم"}
+                            <span className="block text-[10px] mb-1 font-semibold"
+                                  style={{ opacity: msg.isTarget ? 1 : 0.5, color: msg.isTarget ? "#fbbf24" : undefined }}>
+                              {msg.isTarget ? "★ الرسالة المستهدفة" : msg.role === "user" ? "الطالب" : "المعلم"}
                             </span>
                             {msg.content.length > 400
                               ? msg.content.slice(0, 400) + "…"

@@ -103,9 +103,10 @@ router.post("/student/visual-explain/request", async (req: any, res: any): Promi
     // context: آخر 5 رسائل من المحادثة (مصفوفة JSON اختيارية)
     let contextJson: string | null = null;
     if (Array.isArray(context) && context.length > 0) {
-      const cleaned = context.slice(-5).map((m: any) => ({
+      const cleaned = context.slice(-6).map((m: any) => ({
         role: m.role === "user" ? "user" : "assistant",
         content: typeof m.content === "string" ? m.content.slice(0, 1000) : "",
+        ...(m.isTarget === true ? { isTarget: true } : {}),
       })).filter((m: any) => m.content);
       if (cleaned.length > 0) contextJson = JSON.stringify(cleaned);
     }

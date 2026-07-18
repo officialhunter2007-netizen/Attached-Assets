@@ -852,10 +852,13 @@ export default function V4Lesson() {
       const allMsgs = messagesRef.current;
       const targetIdx = allMsgs.findIndex(m => m.content === messageContent);
       const sliceEnd = targetIdx >= 0 ? targetIdx : allMsgs.length;
-      const contextMsgs = allMsgs.slice(Math.max(0, sliceEnd - 5), sliceEnd).map(m => ({
-        role: m.role,
-        content: m.content ?? "",
-      }));
+      const contextMsgs = [
+        ...allMsgs.slice(Math.max(0, sliceEnd - 5), sliceEnd).map(m => ({
+          role: m.role,
+          content: m.content ?? "",
+        })),
+        { role: "assistant" as const, content: messageContent, isTarget: true },
+      ];
 
       const startRes = await fetch("/api/student/visual-explain/request", {
         method: "POST",
