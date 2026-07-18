@@ -153,6 +153,8 @@ router.get("/student/visual-explain/result/:id", async (req: any, res: any): Pro
     if (!row) { res.status(404).json({ error: "الطلب غير موجود" }); return; }
     if (row.status === "completed" && row.html_result) {
       res.json({ status: "done", html: row.html_result });
+    } else if (row.status === "expired") {
+      res.json({ status: "expired" });
     } else {
       res.json({ status: "pending" });
     }

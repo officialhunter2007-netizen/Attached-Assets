@@ -3252,6 +3252,17 @@ function SubjectPathChat({
             }
             return;
           }
+          if (d.status === "expired") {
+            if (!cancelled) {
+              setPendingVERequest(null);
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: null, loading: false, error: "لا يوجد مشرف متاح الآن — حاول مرة أخرى لاحقاً.", mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
           if (d.status === "error") {
             if (!cancelled) {
               setPendingVERequest(null);
