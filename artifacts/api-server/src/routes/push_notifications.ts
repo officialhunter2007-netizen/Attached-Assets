@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import webpush from "web-push";
+import { sendExpoPushToTokens } from "../lib/expo-push";
 
 const router: IRouter = Router();
 
@@ -131,12 +132,42 @@ router.get("/admin/notifications/audience-count", async (req: any, res: any): Pr
   if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
 
   try {
-    const filter = buildWhereClause(req.query as FilterParams);
-    const q = filter
+    const filterParams = req.query as FilterParams;
+    const filter = buildWhereClause(filterParams);
+
+    // VAPID (browser) count
+    const vapidQ = filter
       ? `SELECT COUNT(*) AS cnt FROM push_subscriptions WHERE ${filter}`
       : `SELECT COUNT(*) AS cnt FROM push_subscriptions`;
-    const row = await db.execute(sql.raw(q));
-    return res.json({ count: Number((row.rows[0] as any)?.cnt ?? 0) });
+    const vapidRow = await db.execute(sql.raw(vapidQ));
+    const vapidCount = Number((vapidRow.rows[0] as any)?.cnt ?? 0);
+
+    // Expo (mobile app) count — only for "all" and "users" targets
+    let expoCount = 0;
+    const targetType = filterParams.targetType ?? "all";
+    try {
+      if (targetType === "all") {
+        const expoRow = await db.execute(sql`
+          SELECT COUNT(*) AS cnt FROM expo_push_tokens WHERE role = 'student'
+        `);
+        expoCount = Number((expoRow.rows[0] as any)?.cnt ?? 0);
+      } else if (targetType === "users") {
+        const ids = String(filterParams.userIds ?? "")
+          .split(",").map(Number).filter((n) => !isNaN(n) && n > 0);
+        if (ids.length > 0) {
+          const expoRow = await db.execute(
+            sql.raw(`SELECT COUNT(*) AS cnt FROM expo_push_tokens WHERE user_id IN (${ids.join(",")}) AND role = 'student'`)
+          );
+          expoCount = Number((expoRow.rows[0] as any)?.cnt ?? 0);
+        }
+      }
+    } catch { /* expo table might not exist yet */ }
+
+    return res.json({
+      count: vapidCount + expoCount,
+      vapidCount,
+      expoCount,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message });
   }
@@ -148,12 +179,6 @@ router.post("/admin/notifications/send", async (req: any, res: any): Promise<any
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
   if (!csrfGuard(req, res)) return;
-
-  if (!vapidReady) {
-    return res.status(503).json({
-      error: "مفاتيح VAPID غير مضبوطة. أضف VAPID_PUBLIC_KEY و VAPID_PRIVATE_KEY في Secrets.",
-    });
-  }
 
   try {
     const {
@@ -169,50 +194,93 @@ router.post("/admin/notifications/send", async (req: any, res: any): Promise<any
 
     const filterParams: FilterParams = { targetType, specialtyId, level, unitCode, skillId, userIds };
     const where = buildWhereClause(filterParams);
-    const q = where
-      ? `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE ${where}`
-      : `SELECT endpoint, p256dh, auth FROM push_subscriptions`;
-    const subsResult = await db.execute(sql.raw(q));
-    const subs = subsResult.rows as { endpoint: string; p256dh: string; auth: string }[];
 
-    if (subs.length === 0) {
-      return res.json({ ok: true, sent: 0, failed: 0, message: "لا توجد أجهزة مسجلة للفئة المستهدفة" });
+    let vapidSent = 0, vapidFailed = 0;
+    let expoSent  = 0, expoFailed  = 0;
+
+    // ── 1. Web Push (VAPID) — for browser subscribers ─────────────────────────
+    if (vapidReady) {
+      const q = where
+        ? `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE ${where}`
+        : `SELECT endpoint, p256dh, auth FROM push_subscriptions`;
+      const subsResult = await db.execute(sql.raw(q));
+      const subs = subsResult.rows as { endpoint: string; p256dh: string; auth: string }[];
+
+      if (subs.length > 0) {
+        const payload = JSON.stringify({ title, body, url, icon: "/favicon.svg", badge: "/favicon.svg" });
+        const staleEndpoints: string[] = [];
+
+        await Promise.allSettled(
+          subs.map(async (sub) => {
+            try {
+              await webpush.sendNotification(
+                { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                payload,
+                { TTL: 86400 }
+              );
+              vapidSent++;
+            } catch (err: any) {
+              vapidFailed++;
+              if (err?.statusCode === 410 || err?.statusCode === 404) {
+                staleEndpoints.push(sub.endpoint);
+              }
+            }
+          })
+        );
+        for (const ep of staleEndpoints) {
+          await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${ep}`).catch(() => {});
+        }
+      }
     }
 
-    const payload = JSON.stringify({ title, body, url, icon: "/favicon.svg", badge: "/favicon.svg" });
-    let sent = 0, failed = 0;
-    const staleEndpoints: string[] = [];
-
-    await Promise.allSettled(
-      subs.map(async (sub) => {
-        try {
-          await webpush.sendNotification(
-            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-            payload,
-            { TTL: 86400 }
+    // ── 2. Expo Push — for mobile app users ───────────────────────────────────
+    try {
+      let expoRows;
+      if (targetType === "users") {
+        const ids = (Array.isArray(userIds) ? userIds : String(userIds).split(","))
+          .map(Number).filter((n: number) => !isNaN(n) && n > 0);
+        if (ids.length > 0) {
+          expoRows = await db.execute(
+            sql.raw(`SELECT token FROM expo_push_tokens WHERE user_id IN (${ids.join(",")}) AND role = 'student'`)
           );
-          sent++;
-        } catch (err: any) {
-          failed++;
-          if (err?.statusCode === 410 || err?.statusCode === 404) {
-            staleEndpoints.push(sub.endpoint);
-          }
         }
-      })
-    );
+      } else {
+        // all / specialty / level / unit / skill → send to all student Expo tokens
+        expoRows = await db.execute(sql`SELECT token FROM expo_push_tokens WHERE role = 'student'`);
+      }
 
-    // Clean up expired subscriptions silently
-    for (const ep of staleEndpoints) {
-      await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${ep}`).catch(() => {});
+      if (expoRows && expoRows.rows.length > 0) {
+        const tokens = (expoRows.rows as { token: string }[]).map((r) => r.token);
+        const expoResult = await sendExpoPushToTokens(tokens, {
+          title, body,
+          url: url.startsWith("http") ? url : `https://learnukhba.com${url}`,
+          data: { type: "admin_push", url },
+        });
+        expoSent   = expoResult.sent;
+        expoFailed = expoResult.failed;
+      }
+    } catch (expoErr: any) {
+      console.warn("[push] Expo send error:", expoErr?.message);
+    }
+
+    const totalSent   = vapidSent   + expoSent;
+    const totalFailed = vapidFailed + expoFailed;
+
+    if (totalSent === 0 && totalFailed === 0) {
+      return res.json({
+        ok: true, sent: 0, failed: 0,
+        vapidSent, expoSent,
+        message: "لا توجد أجهزة مسجلة للفئة المستهدفة",
+      });
     }
 
     // Log the sent notification
     await db.execute(sql`
       INSERT INTO notification_log (admin_id, title, body, url, target_filter, sent_count, failed_count)
-      VALUES (${userId}, ${title}, ${body}, ${url}, ${JSON.stringify(filterParams)}::jsonb, ${sent}, ${failed})
+      VALUES (${userId}, ${title}, ${body}, ${url}, ${JSON.stringify(filterParams)}::jsonb, ${totalSent}, ${totalFailed})
     `).catch((e: any) => console.warn("[push] log insert failed:", e?.message));
 
-    return res.json({ ok: true, sent, failed });
+    return res.json({ ok: true, sent: totalSent, failed: totalFailed, vapidSent, expoSent });
   } catch (err: any) {
     console.error("[push] send error:", err?.message);
     return res.status(500).json({ error: "فشل الإرسال: " + err?.message });
