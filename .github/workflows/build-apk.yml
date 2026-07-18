@@ -12,9 +12,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# ── مفتاح التوقيع الثابت — موجود في .github/signing/nukhba.keystore ──────────
-# نفس المفتاح في كل بناء = لا تعارض في التثبيت على الجهاز
-
 jobs:
   build-student:
     name: "📱 Student APK"
@@ -40,24 +37,21 @@ jobs:
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses || true
 
+      - name: Decode keystore
+        run: |
+          base64 -d .github/signing/nukhba.keystore.b64 > /tmp/nukhba.keystore
+          echo "Keystore decoded ✅"
+
       - name: Build Release APK (signed)
         working-directory: apps/nukhba-student
         env:
-          KEYSTORE_PATH: ../../.github/signing/nukhba.keystore
+          KEYSTORE_PATH: /tmp/nukhba.keystore
           KEYSTORE_PASSWORD: nukhba2024
           KEY_ALIAS: nukhba
           KEY_PASSWORD: nukhba2024
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace
-
-      - name: Verify signing fingerprint
-        run: |
-          keytool -list -v \
-            -alias nukhba \
-            -keystore .github/signing/nukhba.keystore \
-            -storepass nukhba2024 \
-            | grep "SHA256"
 
       - name: Upload Student APK
         uses: actions/upload-artifact@v4
@@ -91,24 +85,21 @@ jobs:
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses || true
 
+      - name: Decode keystore
+        run: |
+          base64 -d .github/signing/nukhba.keystore.b64 > /tmp/nukhba.keystore
+          echo "Keystore decoded ✅"
+
       - name: Build Release APK (signed)
         working-directory: apps/nukhba-admin
         env:
-          KEYSTORE_PATH: ../../.github/signing/nukhba.keystore
+          KEYSTORE_PATH: /tmp/nukhba.keystore
           KEYSTORE_PASSWORD: nukhba2024
           KEY_ALIAS: nukhba
           KEY_PASSWORD: nukhba2024
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace
-
-      - name: Verify signing fingerprint
-        run: |
-          keytool -list -v \
-            -alias nukhba \
-            -keystore .github/signing/nukhba.keystore \
-            -storepass nukhba2024 \
-            | grep "SHA256"
 
       - name: Upload Admin APK
         uses: actions/upload-artifact@v4
