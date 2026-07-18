@@ -37,6 +37,7 @@ import v4AdminStudentMonitorRouter from "./v4_admin_student_monitor";
 import v4VisualExplainRouter from "./v4_visual_explain";
 import pushNotificationsRouter from "./push_notifications";
 import adminFcmRouter from "./admin_fcm";
+import expoPushTokensRouter from "./expo_push_tokens";
 import assetlinksRouter from "./assetlinks";
 
 const router: IRouter = Router();
@@ -79,6 +80,7 @@ router.use(v4AdminStudentMonitorRouter);
 router.use(v4VisualExplainRouter);
 router.use(pushNotificationsRouter);
 router.use(adminFcmRouter);
+router.use(expoPushTokensRouter);
 router.use(assetlinksRouter);
 
 export default router;

@@ -33,6 +33,7 @@ import { purchaseV4GemsTx } from "../lib/v4-gem-wallet";
 import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
 import { requireSameOriginCsrf } from "../lib/csrf";
 import { sendFcmToTokens } from "../lib/fcm";
+import { sendExpoToAdmins, sendExpoToStudent } from "./expo_push_tokens";
 import {
   computeGemsForPrice,
   computePricingBreakdown,
@@ -560,6 +561,13 @@ router.post("/subscriptions/request", async (req, res): Promise<void> => {
 
     // ── إشعار FCM للأدمن (best-effort، لا يؤثر على الاستجابة) ────────────────
     sendFcmToAdmins(
+      created.subjectName ?? subjectName ?? created.subjectId ?? "",
+      created.userName ?? created.userEmail ?? "",
+      created.planType ?? "",
+    ).catch(() => {});
+
+    // ── إشعار Expo Push للأدمن (تطبيق الأدمن المبني بـ Expo) ─────────────────
+    sendExpoToAdmins(
       created.subjectName ?? subjectName ?? created.subjectId ?? "",
       created.userName ?? created.userEmail ?? "",
       created.planType ?? "",
