@@ -14,13 +14,23 @@ android {
         versionName "1.0.0"
     }
 
+    signingConfigs {
+        release {
+            storeFile     file(System.env.KEYSTORE_PATH ?: "../../.github/signing/nukhba.keystore")
+            storePassword System.env.KEYSTORE_PASSWORD ?: "nukhba2024"
+            keyAlias      System.env.KEY_ALIAS         ?: "nukhba"
+            keyPassword   System.env.KEY_PASSWORD      ?: "nukhba2024"
+        }
+    }
+
     buildTypes {
         debug {
             debuggable true
         }
         release {
-            minifyEnabled true
-            shrinkResources true
+            signingConfig    signingConfigs.release
+            minifyEnabled    true
+            shrinkResources  true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
