@@ -2171,6 +2171,7 @@ const MessageToolbar = memo(function MessageToolbar({
   onShare,
   onRate,
   onVisualExplain,
+  visualExplainEnabled,
   canRegenerate,
   ratingKey,
 }: {
@@ -2179,6 +2180,7 @@ const MessageToolbar = memo(function MessageToolbar({
   onShare?: () => void;
   onRate?: (value: "up" | "down") => void;
   onVisualExplain?: () => void;
+  visualExplainEnabled?: boolean;
   canRegenerate: boolean;
   ratingKey?: string;
 }) {
@@ -2322,10 +2324,11 @@ const MessageToolbar = memo(function MessageToolbar({
         <button
           type="button"
           className="msg-toolbar-btn"
-          style={{ color: "rgb(251 191 36 / 0.85)" }}
-          title={t.toolbarVisualExplainTitle}
+          style={{ color: visualExplainEnabled ? "rgb(251 191 36 / 0.85)" : "rgb(255 255 255 / 0.28)", cursor: visualExplainEnabled ? "pointer" : "not-allowed" }}
+          title={visualExplainEnabled ? t.toolbarVisualExplainTitle : "لا يوجد مشرف متاح حالياً"}
           aria-label={t.toolbarVisualExplainTitle}
-          onClick={onVisualExplain}
+          onClick={visualExplainEnabled ? onVisualExplain : undefined}
+          disabled={!visualExplainEnabled}
         >
           <Eye className="w-3.5 h-3.5" />
           <span className="msg-toolbar-label">{t.toolbarVisualExplain}</span>
@@ -3205,7 +3208,21 @@ function SubjectPathChat({
     html: string | null;
     loading: boolean;
     error: string | null;
+    mode?: 'admin';
   } | null>(null);
+  const [visualExplainReady, setVisualExplainReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/public/visual-explain/any-ready", { credentials: "include" });
+        if (!cancelled && r.ok) { const d = await r.json(); setVisualExplainReady(!!d.anyReady); }
+      } catch { /* ignore */ }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
   const consumedSourcesParamRef = useRef(false);
   useEffect(() => {
     if (initialSourcesMaterialId == null || consumedSourcesParamRef.current) return;
@@ -4227,41 +4244,43 @@ function SubjectPathChat({
   }, [isStreaming, sessionPaused]);
 
   // ── Visual Explain ────────────────────────────────────────────────────────
-  // Posts the teacher message to the backend → Playwright → manus.im pipeline.
-  // Shows an overlay modal with a self-contained interactive HTML page.
+  // Sends a request to the admin queue. A supervisor claims it, pastes HTML,
+  // and the student polls for the result (up to 15 minutes).
   const handleVisualExplain = useCallback(async (messageContent: string) => {
-    setVisualOverlay({ html: null, loading: true, error: null });
+    setVisualOverlay({ html: null, loading: true, error: null, mode: 'admin' });
     const POLL_MS  = 5_000;
-    const DEADLINE = Date.now() + 10 * 60_000; // 10 min max
+    const DEADLINE = Date.now() + 15 * 60_000; // 15 min max
     try {
-      const startRes = await fetch("/api/v4/visual-explain/start", {
+      const startRes = await fetch("/api/student/visual-explain/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ message: messageContent }),
+        body: JSON.stringify({ messageText: messageContent }),
       });
       if (!startRes.ok) {
         const d = await startRes.json().catch(() => ({}));
         throw new Error(d.error || tr.subject.visualExplainError);
       }
-      const { jobId } = await startRes.json();
+      const { requestId } = await startRes.json();
 
       while (Date.now() < DEADLINE) {
         await new Promise(r => setTimeout(r, POLL_MS));
-        const statusRes = await fetch(`/api/v4/visual-explain/status/${jobId}`, { credentials: "include" });
+        const statusRes = await fetch(`/api/student/visual-explain/result/${requestId}`, { credentials: "include" });
         if (!statusRes.ok) {
           const d = await statusRes.json().catch(() => ({}));
           throw new Error(d.error || tr.subject.visualExplainError);
         }
         const data = await statusRes.json();
-        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null }); return; }
-        if (data.status === "error") { throw new Error(data.error || tr.subject.visualExplainError); }
+        if (data.status === "done")   { setVisualOverlay({ html: data.html, loading: false, error: null, mode: 'admin' }); return; }
+        if (data.status === "error")  { throw new Error(data.error || tr.subject.visualExplainError); }
+        // "pending" or "claimed" → keep polling
       }
-      throw new Error("انتهت مهلة الانتظار (5 دقائق) — حاول مرة أخرى");
+      throw new Error("انتهت مهلة الانتظار (15 دقيقة) — حاول مرة أخرى");
     } catch (err) {
       setVisualOverlay({
         html: null, loading: false,
         error: err instanceof Error ? err.message : tr.subject.visualExplainError,
+        mode: 'admin',
       });
     }
   }, [tr.subject]);
@@ -5714,6 +5733,7 @@ function SubjectPathChat({
                           ratingKey={`${subject.id}:${i}`}
                           onRegenerate={handleRegenerateLast}
                           onVisualExplain={!(msg.content || '').trim().startsWith("⚠️") ? () => handleVisualExplain(msg.content) : undefined}
+                         visualExplainEnabled={visualExplainReady}
                           canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
                           onRate={(value) => {
                             try {
@@ -6268,9 +6288,13 @@ function SubjectPathChat({
                       <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
                     </div>
                   </div>
-                  <p className="text-white font-semibold text-base">{tr.subject.visualExplainLoading}</p>
+                  <p className="text-white font-semibold text-base">
+                    {visualOverlay?.mode === 'admin' ? "في انتظار المشرف..." : tr.subject.visualExplainLoading}
+                  </p>
                   <p className="text-white/45 text-xs text-center max-w-xs leading-relaxed">
-                    {tr.subject.visualExplainLoadingHint}
+                    {visualOverlay?.mode === 'admin'
+                      ? "تم إرسال طلبك إلى المشرف. سيتم عرض الشرح فور الانتهاء منه."
+                      : tr.subject.visualExplainLoadingHint}
                   </p>
                 </div>
               )}

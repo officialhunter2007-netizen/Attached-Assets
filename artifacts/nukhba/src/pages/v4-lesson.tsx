@@ -705,7 +705,21 @@ export default function V4Lesson() {
     html: string | null;
     loading: boolean;
     error: string | null;
+    mode?: 'admin';
   } | null>(null);
+  const [visualExplainReady, setVisualExplainReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/public/visual-explain/any-ready", { credentials: "include" });
+        if (!cancelled && r.ok) { const d = await r.json(); setVisualExplainReady(!!d.anyReady); }
+      } catch { /* ignore */ }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -763,28 +777,28 @@ export default function V4Lesson() {
   }, []);
 
   // ── Visual Explain ────────────────────────────────────────────────────────
+  // Sends a request to the admin queue. A supervisor claims it, pastes HTML,
+  // and the student polls for the result (up to 15 minutes).
   const handleVisualExplain = useCallback(async (messageContent: string) => {
-    setVisualOverlay({ html: null, loading: true, error: null });
+    setVisualOverlay({ html: null, loading: true, error: null, mode: 'admin' });
     const POLL_MS  = 5_000;
-    const DEADLINE = Date.now() + 10 * 60_000; // 10 min max
+    const DEADLINE = Date.now() + 15 * 60_000; // 15 min max
     try {
-      // Step 1: Start the Manus job (returns immediately with a jobId)
-      const startRes = await fetch("/api/v4/visual-explain/start", {
+      const startRes = await fetch("/api/student/visual-explain/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ message: messageContent }),
+        body: JSON.stringify({ messageText: messageContent }),
       });
       if (!startRes.ok) {
         const d = await startRes.json().catch(() => ({}));
         throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
       }
-      const { jobId } = await startRes.json();
+      const { requestId } = await startRes.json();
 
-      // Step 2: Poll for status every 4 seconds
       while (Date.now() < DEADLINE) {
         await new Promise(r => setTimeout(r, POLL_MS));
-        const statusRes = await fetch(`/api/v4/visual-explain/status/${jobId}`, {
+        const statusRes = await fetch(`/api/student/visual-explain/result/${requestId}`, {
           credentials: "include",
         });
         if (!statusRes.ok) {
@@ -792,15 +806,16 @@ export default function V4Lesson() {
           throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
         }
         const data = await statusRes.json();
-        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null }); return; }
+        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null, mode: 'admin' }); return; }
         if (data.status === "error") { throw new Error(data.error || "تعذّر إنشاء الشرح البصري."); }
-        // "pending" → keep polling
+        // "pending" or "claimed" → keep polling
       }
-      throw new Error("انتهت مهلة الانتظار (5 دقائق) — حاول مرة أخرى");
+      throw new Error("انتهت مهلة الانتظار (15 دقيقة) — حاول مرة أخرى");
     } catch (err) {
       setVisualOverlay({
         html: null, loading: false,
         error: err instanceof Error ? err.message : "تعذّر إنشاء الشرح البصري.",
+        mode: 'admin',
       });
     }
   }, []);
@@ -1636,6 +1651,7 @@ export default function V4Lesson() {
                     ? () => handleVisualExplain(m.content)
                     : undefined
                 }
+                visualExplainEnabled={visualExplainReady}
               />
             );
           })}
@@ -1947,9 +1963,13 @@ export default function V4Lesson() {
                       <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
                     </div>
                   </div>
-                  <p className="text-white font-semibold text-base">جارٍ إنشاء الشرح البصري…</p>
+                  <p className="text-white font-semibold text-base">
+                    {visualOverlay?.mode === 'admin' ? "في انتظار المشرف..." : "جارٍ إنشاء الشرح البصري…"}
+                  </p>
                   <p className="text-white/45 text-xs text-center max-w-xs leading-relaxed">
-                    يُنشئ الذكاء الاصطناعي الآن صفحة تفاعلية لشرح هذا المفهوم بصرياً. قد يستغرق ذلك دقيقة أو دقيقتين.
+                    {visualOverlay?.mode === 'admin'
+                      ? "تم إرسال طلبك إلى المشرف. سيتم عرض الشرح فور الانتهاء منه."
+                      : "يُنشئ الذكاء الاصطناعي الآن صفحة تفاعلية لشرح هذا المفهوم بصرياً. قد يستغرق ذلك دقيقة أو دقيقتين."}
                   </p>
                 </div>
               )}
@@ -1993,6 +2013,7 @@ const MessageBubble = ({
   slug,
   onAnswerOption,
   onVisualExplain,
+  visualExplainEnabled,
 }: {
   msg: ChatMsg;
   isStreaming: boolean;
@@ -2001,6 +2022,7 @@ const MessageBubble = ({
   slug?: string;
   onAnswerOption?: (answer: string) => void;
   onVisualExplain?: () => void;
+  visualExplainEnabled?: boolean;
 }) => {
   // Normalise Arabic text (stuck words, missing spaces) on assistant messages.
   const normalizedContent = useMemo(() => {
@@ -2095,8 +2117,14 @@ const MessageBubble = ({
           <div className="mt-3 pt-3 border-t border-white/5 flex">
             <button
               type="button"
-              onClick={onVisualExplain}
-              className="flex items-center gap-1.5 text-[12px] text-amber-400/75 hover:text-amber-300 transition-colors"
+              onClick={visualExplainEnabled ? onVisualExplain : undefined}
+              disabled={!visualExplainEnabled}
+              title={visualExplainEnabled ? "شرح بصري" : "لا يوجد مشرف متاح حالياً"}
+              className={`flex items-center gap-1.5 text-[12px] transition-colors ${
+                visualExplainEnabled
+                  ? "text-amber-400/75 hover:text-amber-300 cursor-pointer"
+                  : "text-white/25 cursor-not-allowed"
+              }`}
             >
               <Eye className="w-3.5 h-3.5" />
               <span>شرح بصري</span>

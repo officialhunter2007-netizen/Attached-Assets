@@ -54,6 +54,7 @@ import AdminLevelQuizzes from "@/components/admin-level-quizzes";
 import AdminStageQuizzes from "@/components/admin-stage-quizzes";
 import { AdminStudentMonitor } from "@/components/admin-student-monitor";
 import { AdminNotifications } from "@/components/admin-notifications";
+import { AdminVisualExplain } from "@/components/admin-visual-explain";
 import { useQueryClient } from "@tanstack/react-query";
 import { university, skills } from "@/lib/curriculum";
 
@@ -230,6 +231,7 @@ export default function Admin() {
   const [supportError, setSupportError] = useState<string | null>(null);
   const [supportUnread, setSupportUnread] = useState(0);
   const [unresolvedAlertsCount, setUnresolvedAlertsCount] = useState(0);
+  const [visualExplainPendingCount, setVisualExplainPendingCount] = useState(0);
   const [selectedThread, setSelectedThread] = useState<SupportThread | null>(null);
   const [replyMessage, setReplyMessage] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -1069,6 +1071,15 @@ export default function Admin() {
             </TabsTrigger>
             <TabsTrigger value="push-notifications" className="flex items-center gap-1.5 bg-gradient-to-l from-blue-500/10 to-sky-500/10 data-[state=active]:from-blue-500/25 data-[state=active]:to-sky-500/20 data-[state=active]:border-blue-400/40">
               🔔 إشعارات الهواتف
+            </TabsTrigger>
+            <TabsTrigger value="visual-explain" className="relative flex items-center gap-1.5 bg-gradient-to-l from-amber-500/10 to-yellow-500/10 data-[state=active]:from-amber-500/25 data-[state=active]:to-yellow-500/20 data-[state=active]:border-amber-400/40">
+              <Eye className="w-3.5 h-3.5 text-amber-400" />
+              التوضيح البصري
+              {visualExplainPendingCount > 0 && (
+                <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center px-1 leading-none">
+                  {visualExplainPendingCount > 99 ? "99+" : visualExplainPendingCount}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -1982,6 +1993,9 @@ export default function Admin() {
           <TabsContent value="push-notifications" className="p-4">
             <AdminNotifications />
           </TabsContent>
+          <TabsContent value="visual-explain" className="p-4">
+            <AdminVisualExplain onPendingCount={setVisualExplainPendingCount} />
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -2415,6 +2429,7 @@ export default function Admin() {
           </div>
         </DialogContent>
       </Dialog>
+
     </AppLayout>
   );
 }
