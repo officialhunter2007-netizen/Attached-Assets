@@ -261,37 +261,53 @@ function PushSetup() {
 
     async function subscribe() {
       try {
-        // Fetch VAPID public key from backend
-        const keyRes = await fetch("/api/push/vapid-public-key", { credentials: "include" });
-        const { publicKey } = await keyRes.json();
-        if (!publicKey) return; // VAPID not configured yet
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
 
-        const reg = await navigator.serviceWorker.ready;
-        const existing = await reg.pushManager.getSubscription();
-
-        // Request permission if not already granted
+        // اطلب الإذن أولاً
         if (Notification.permission === "denied") return;
         if (Notification.permission === "default") {
           const perm = await Notification.requestPermission();
           if (perm !== "granted") return;
         }
 
-        const subscription =
-          existing ??
-          (await reg.pushManager.subscribe({
+        // اجلب VAPID key
+        const keyRes = await fetch("/api/push/vapid-public-key", { credentials: "include" });
+        const { publicKey } = await keyRes.json();
+        if (!publicKey) return;
+
+        const reg = await navigator.serviceWorker.ready;
+        let subscription = await reg.pushManager.getSubscription();
+
+        // تحقق من صلاحية الاشتراك الموجود
+        const isExpired =
+          subscription?.expirationTime != null &&
+          subscription.expirationTime < Date.now() + 5 * 60 * 1000; // أقل من 5 دقائق
+
+        if (isExpired && subscription) {
+          // اشتراك منتهي — أعد التسجيل من الصفر
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+
+        if (!subscription) {
+          subscription = await reg.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(publicKey),
-          }));
+          });
+        }
 
-        // Send subscription to backend with lightweight targeting metadata
-        await fetch("/api/push/subscribe", {
+        // أرسل الاشتراك للباكند — دائماً عند كل تحميل للتجديد
+        const res = await fetch("/api/push/subscribe", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
           body: JSON.stringify({ subscription: subscription.toJSON(), meta: {} }),
         });
 
-        subscribedRef.current = true;
+        if (res.ok) {
+          subscribedRef.current = true;
+          console.log("[push] ✓ اشتراك مُسجَّل");
+        }
       } catch (err) {
         console.warn("[push] subscribe failed:", err);
       }
