@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Bell, Send, Users, Loader2, CheckCircle2,
-  History, X, Search, AlertTriangle,
+  History, X, Search,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { university, skills as skillCats } from "@/lib/curriculum";
@@ -83,26 +83,26 @@ export function AdminNotifications() {
 
   // Audience count
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
+  const [vapidCount,    setVapidCount]    = useState<number | null>(null);
+  const [expoCount,     setExpoCount]     = useState<number | null>(null);
   const [countLoading,  setCountLoading]  = useState(false);
 
   // Send
   const [sending, setSending] = useState(false);
-  const [result,  setResult]  = useState<{ sent: number; failed: number } | null>(null);
+  const [result,  setResult]  = useState<{ sent: number; failed: number; vapidSent?: number; expoSent?: number } | null>(null);
 
   // History
   const [history,        setHistory]        = useState<NotifLog[]>([]);
   const [loadingHistory, setLoadingHistory]  = useState(false);
   const [showHistory,    setShowHistory]    = useState(false);
 
-  // VAPID status
-  const [vapidOk, setVapidOk] = useState<boolean | null>(null);
-
-  // Check VAPID on mount
+  // Expo stats
+  const [expoStats, setExpoStats] = useState<{ student: number; admin: number } | null>(null);
   useEffect(() => {
-    fetch("/api/push/vapid-public-key", { credentials: "include" })
+    fetch("/api/admin/expo-notifications/stats", { credentials: "include" })
       .then(r => r.json())
-      .then(d => setVapidOk(Boolean(d?.publicKey)))
-      .catch(() => setVapidOk(false));
+      .then(d => setExpoStats(d?.stats ?? null))
+      .catch(() => {});
   }, []);
 
   // ── Audience count ──────────────────────────────────────────────────────────
@@ -118,7 +118,9 @@ export function AdminNotifications() {
       const r = await fetch(`/api/admin/notifications/audience-count?${p}`, { credentials: "include" });
       const d = await r.json();
       setAudienceCount(d.count ?? 0);
-    } catch { setAudienceCount(null); }
+      setVapidCount(d.vapidCount ?? null);
+      setExpoCount(d.expoCount ?? null);
+    } catch { setAudienceCount(null); setVapidCount(null); setExpoCount(null); }
     finally   { setCountLoading(false); }
   }, [targetType, specialtyId, level, unitCode, skillId, selectedUsers]);
 
@@ -204,14 +206,14 @@ export function AdminNotifications() {
         </Button>
       </div>
 
-      {/* VAPID warning */}
-      {vapidOk === false && (
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-sm text-amber-300">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold">مفاتيح الإشعارات غير مضبوطة</p>
-            <p className="text-amber-300/70 text-xs mt-0.5">أضف <code className="font-mono">VAPID_PUBLIC_KEY</code> و <code className="font-mono">VAPID_PRIVATE_KEY</code> في Secrets لتفعيل الإرسال.</p>
-          </div>
+      {/* Expo stats pill */}
+      {expoStats !== null && (
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm">
+          <span className="text-emerald-400">📱</span>
+          <span className="text-emerald-300 font-semibold">{expoStats.student} جهاز طالب مثبّت التطبيق</span>
+          {expoStats.admin > 0 && (
+            <span className="text-emerald-300/60 text-xs">· {expoStats.admin} أدمن</span>
+          )}
         </div>
       )}
 
@@ -386,25 +388,61 @@ export function AdminNotifications() {
         )}
 
         {/* Audience preview */}
-        <div className="flex items-center justify-between py-3 px-4 rounded-xl bg-white/5 border border-white/10">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Users className="w-4 h-4" />المستهدفون تقريباً
+        <div className="py-3 px-4 rounded-xl bg-white/5 border border-white/10 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users className="w-4 h-4" />المستهدفون تقريباً
+            </div>
+            <div className="font-bold text-lg">
+              {countLoading
+                ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                : audienceCount !== null
+                  ? <span className="text-blue-400">{audienceCount.toLocaleString("ar")} جهاز</span>
+                  : "—"}
+            </div>
           </div>
-          <div className="font-bold text-lg">
-            {countLoading
-              ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-              : audienceCount !== null
-                ? <span className="text-blue-400">{audienceCount.toLocaleString("ar")} جهاز</span>
-                : "—"}
-          </div>
+          {!countLoading && (vapidCount !== null || expoCount !== null) && (
+            <div className="flex gap-3 text-xs text-muted-foreground">
+              {vapidCount !== null && (
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 inline-block" />
+                  {vapidCount} متصفح
+                </span>
+              )}
+              {expoCount !== null && (
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                  {expoCount} تطبيق
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Result */}
         {result && (
-          <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            أُرسل الإشعار إلى <strong className="mx-1">{result.sent}</strong> جهاز
-            {result.failed > 0 && <span className="text-rose-400 mr-1">({result.failed} فشل)</span>}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              أُرسل الإشعار إلى <strong className="mx-1">{result.sent}</strong> جهاز
+              {result.failed > 0 && <span className="text-rose-400 mr-1">({result.failed} فشل)</span>}
+            </div>
+            {(result.vapidSent !== undefined || result.expoSent !== undefined) && (
+              <div className="flex gap-3 text-xs text-muted-foreground px-1">
+                {result.vapidSent !== undefined && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 inline-block" />
+                    {result.vapidSent} متصفح
+                  </span>
+                )}
+                {result.expoSent !== undefined && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                    {result.expoSent} تطبيق
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
