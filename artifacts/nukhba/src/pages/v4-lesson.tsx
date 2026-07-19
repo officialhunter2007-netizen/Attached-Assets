@@ -2225,14 +2225,11 @@ const MessageBubble = ({
               onClick={visualExplainEnabled ? onVisualExplain : undefined}
               disabled={!visualExplainEnabled}
               title={visualExplainEnabled ? "شرح بصري" : "لا يوجد مشرف متاح حالياً"}
-              className={`flex items-center gap-1.5 text-[12px] transition-colors ${
-                visualExplainEnabled
-                  ? "text-amber-400/75 hover:text-amber-300 cursor-pointer"
-                  : "text-white/25 cursor-not-allowed"
-              }`}
+              className={`msg-toolbar-btn${visualExplainEnabled ? " msg-toolbar-btn-ve-active" : ""}`}
+              style={!visualExplainEnabled ? { color: "rgb(255 255 255 / 0.28)", cursor: "not-allowed" } : undefined}
             >
               <Eye className="w-3.5 h-3.5" />
-              <span>شرح بصري</span>
+              <span className="msg-toolbar-label">شرح بصري</span>
             </button>
           </div>
         )}
