@@ -425,10 +425,11 @@ function buildCodeCardHtml(text: string, lang: string, highlighted: string): str
   const label = prettyLangName(lang);
   const codeClass = lang ? `language-${lang} hljs` : "hljs";
   return (
-    `<pre class="code-enhanced">` +
+    `<pre class="code-enhanced" data-lang="${lang}">` +
     `<div class="code-head">` +
     `<span class="code-dots" aria-hidden="true"><i></i><i></i><i></i></span>` +
     `<span class="code-lang">${label}</span>` +
+    `<button type="button" class="explain-code-btn" aria-label="شرح سطر بسطر">📖 شرح</button>` +
     `<button type="button" class="copy-code-btn" aria-label="نسخ الكود">نسخ</button>` +
     `</div>` +
     `<div class="code-body">` +
@@ -524,6 +525,21 @@ if (typeof document !== "undefined") {
     } catch {
       btn.textContent = "تعذر النسخ";
     }
+  }, true);
+
+  // ── Explain-code button ────────────────────────────────────────────────────
+  document.addEventListener("click", (ev) => {
+    const target = ev.target as HTMLElement;
+    const btn = target.closest?.(".explain-code-btn") as HTMLElement | null;
+    if (!btn) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    const pre = btn.closest("pre.code-enhanced");
+    if (!pre) return;
+    const codeEl = pre.querySelector("code");
+    const code = codeEl?.textContent || "";
+    const lang = pre.getAttribute("data-lang") || "";
+    window.dispatchEvent(new CustomEvent("nukhba:explain-code", { detail: { code, lang } }));
   }, true);
 }
 
@@ -636,6 +652,7 @@ function decorateOutputBlock(pre: HTMLElement, code: HTMLElement): void {
 function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string): void {
   if (pre.querySelector(".code-head")) return;
   pre.classList.add("code-enhanced");
+  if (langName) pre.setAttribute("data-lang", langName);
 
   const head = document.createElement("div");
   head.className = "code-head";
@@ -649,6 +666,12 @@ function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string
   lang.className = "code-lang";
   lang.textContent = prettyLangName(langName);
 
+  const explainBtn = document.createElement("button");
+  explainBtn.type = "button";
+  explainBtn.className = "explain-code-btn";
+  explainBtn.textContent = "📖 شرح";
+  explainBtn.setAttribute("aria-label", "شرح سطر بسطر");
+
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "copy-code-btn";
@@ -657,6 +680,7 @@ function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string
 
   head.appendChild(dots);
   head.appendChild(lang);
+  head.appendChild(explainBtn);
   head.appendChild(btn);
 
   const codeText = (code.textContent || "").replace(/\n$/, "");
