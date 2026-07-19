@@ -94,9 +94,9 @@ router.post("/student/visual-explain/request", async (req: any, res: any): Promi
   }
 
   try {
-    const [user] = await db.select({ name: usersTable.name, email: usersTable.email })
+    const [user] = await db.select({ displayName: usersTable.displayName, email: usersTable.email })
       .from(usersTable).where(eq(usersTable.id, userId));
-    const studentName = user?.name ?? user?.email ?? "طالب";
+    const studentName = user?.displayName ?? user?.email ?? "طالب";
     const subName = (subjectName || "").slice(0, 120);
     const msgText = messageText.slice(0, 2000);
 
