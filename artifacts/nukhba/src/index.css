@@ -863,7 +863,9 @@
   -moz-osx-font-smoothing: grayscale;
   min-width: 0;
   max-width: 100%;
-  overflow-x: hidden;
+  /* clip visually without creating a scroll-container — lets children like
+     .table-scroll-wrapper and .code-body keep their own overflow-x: auto */
+  overflow-x: clip;
 }
 @media (max-width: 640px) {
   .ai-msg {
