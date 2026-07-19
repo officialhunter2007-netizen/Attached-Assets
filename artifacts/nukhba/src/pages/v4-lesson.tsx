@@ -724,7 +724,50 @@ export default function V4Lesson() {
   }, []);
 
   // Pending visual-explain request (background polling — survives overlay close)
+  // SessionStorage key — persists the requestId across page navigation.
+  const PENDING_VE_SS_KEY = "nkhba_pending_ve_id";
+
   const [pendingVERequest, setPendingVERequest] = useState<{ requestId: string; html?: string } | null>(null);
+
+  // ── Restore from sessionStorage on mount ──────────────────────────────────
+  // Handles the case: student navigated away after pressing X, admin completed
+  // later — when student opens any lesson page we pick up where we left off.
+  useEffect(() => {
+    const storedId = sessionStorage.getItem(PENDING_VE_SS_KEY);
+    if (!storedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/student/visual-explain/result/${storedId}`, { credentials: "include" });
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        if (cancelled) return;
+        if (d.status === "done") {
+          // Admin already finished — show toast immediately, no need to poll
+          setPendingVERequest({ requestId: storedId, html: d.html });
+        } else if (d.status === "expired" || d.status === "error") {
+          // Dead request — clear storage
+          sessionStorage.removeItem(PENDING_VE_SS_KEY);
+        } else {
+          // Still pending — resume background polling
+          setPendingVERequest({ requestId: storedId });
+        }
+      } catch { /* ignore — polling loop will retry */ }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Sync requestId to sessionStorage whenever it changes ──────────────────
+  useEffect(() => {
+    if (pendingVERequest?.requestId && !pendingVERequest.html) {
+      sessionStorage.setItem(PENDING_VE_SS_KEY, pendingVERequest.requestId);
+    } else {
+      // Null (dismissed/done) or html already received — clear storage
+      sessionStorage.removeItem(PENDING_VE_SS_KEY);
+    }
+  }, [pendingVERequest?.requestId, pendingVERequest?.html]);
+
   useEffect(() => {
     if (!pendingVERequest?.requestId || pendingVERequest.html) return;
     let cancelled = false;
@@ -2081,29 +2124,48 @@ export default function V4Lesson() {
       {/* ── Visual Explain Ready Toast ─────────────────────────────────────── */}
       {pendingVERequest?.html && !visualOverlay && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
-          style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", direction: "rtl", minWidth: "260px" }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] animate-in slide-in-from-bottom-4 duration-300"
+          style={{ direction: "rtl" }}
         >
-          <Sparkles className="w-4 h-4 text-black/80 shrink-0" />
-          <span className="font-bold text-black text-sm flex-1">الشرح البصري جاهز!</span>
-          <button
-            type="button"
+          {/* Outer glow ring — pulses to grab attention */}
+          <div
+            className="absolute inset-0 rounded-2xl animate-ping opacity-30 pointer-events-none"
+            style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", animationDuration: "1.8s" }}
+          />
+          <div
+            className="relative flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl cursor-pointer"
+            style={{
+              background: "linear-gradient(135deg,#f59e0b,#c97206)",
+              minWidth: "270px",
+              boxShadow: "0 0 22px rgba(245,158,11,0.5), 0 8px 24px rgba(0,0,0,0.45)",
+            }}
             onClick={() => {
               setVisualOverlay({ html: pendingVERequest.html!, loading: false, error: null, mode: "admin" });
               setPendingVERequest(null);
             }}
-            className="px-3 py-1 rounded-xl bg-black/20 hover:bg-black/35 text-black font-bold text-sm transition-colors"
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => {
+              if (e.key === "Enter" || e.key === " ") {
+                setVisualOverlay({ html: pendingVERequest.html!, loading: false, error: null, mode: "admin" });
+                setPendingVERequest(null);
+              }
+            }}
           >
-            عرض
-          </button>
-          <button
-            type="button"
-            onClick={() => setPendingVERequest(null)}
-            className="w-6 h-6 flex items-center justify-center rounded-full bg-black/15 hover:bg-black/30 transition-colors shrink-0"
-            aria-label="إغلاق"
-          >
-            <X className="w-3.5 h-3.5 text-black/80" />
-          </button>
+            <Sparkles className="w-5 h-5 text-black/80 shrink-0 animate-pulse" />
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-black text-sm leading-tight">الشرح البصري جاهز! ✨</p>
+              <p className="text-black/65 text-xs mt-0.5">اضغط لمشاهدة الشرح التفاعلي</p>
+            </div>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); setPendingVERequest(null); }}
+              className="w-6 h-6 flex items-center justify-center rounded-full bg-black/15 hover:bg-black/30 transition-colors shrink-0"
+              aria-label="إغلاق الإشعار"
+            >
+              <X className="w-3.5 h-3.5 text-black/80" />
+            </button>
+          </div>
         </div>
       )}
     </>
