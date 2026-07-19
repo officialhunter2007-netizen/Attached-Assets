@@ -2483,7 +2483,7 @@ const MessageBubble = ({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 px-5 py-4 shadow-md">
+      <div className="max-w-[92%] min-w-0 rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 px-5 py-4 shadow-md">
         {html ? (
           <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} lessonName={lessonName} slug={slug} />
         ) : isStreaming ? (
