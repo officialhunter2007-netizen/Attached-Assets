@@ -1173,38 +1173,59 @@
 }
 
 /* ── Tables ── */
-.ai-msg table {
-  width: 100%;
-  max-width: 100%;
-  border-collapse: collapse;
-  margin: 14px 0;
-  display: block;
+/* Wrapper injected by enhanceTeacherDom — handles scroll in both axes. */
+.ai-msg .table-scroll-wrapper {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 440px;          /* ≈6 rows visible; more → vertical scroll */
+  margin: 14px 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.09);
   -webkit-overflow-scrolling: touch;
-  border-radius: 8px;
-  overflow: hidden;
+  overscroll-behavior: contain;
 }
-.ai-msg thead, .ai-msg tbody, .ai-msg tr {
+.ai-msg .table-scroll-wrapper::-webkit-scrollbar { width: 5px; height: 5px; }
+.ai-msg .table-scroll-wrapper::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+.ai-msg .table-scroll-wrapper::-webkit-scrollbar-thumb { background: rgba(245,158,11,0.35); border-radius: 4px; }
+.ai-msg .table-scroll-wrapper::-webkit-scrollbar-thumb:hover { background: rgba(245,158,11,0.55); }
+
+.ai-msg table {
+  /* Natural table rendering — let columns size to content */
   display: table;
-  width: 100%;
-  table-layout: fixed;
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  table-layout: auto;
+  border-radius: 0;
 }
+.ai-msg thead { display: table-header-group; }
+.ai-msg tbody { display: table-row-group; }
+.ai-msg tr    { display: table-row; }
 .ai-msg th {
   background: rgba(255,255,255,0.06) !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  padding: 8px 12px;
+  padding: 9px 14px;
   text-align: right;
   color: #f4f4f6 !important;
   font-weight: 700;
   font-size: 0.92em;
+  white-space: nowrap;        /* header labels never wrap */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  backdrop-filter: blur(6px);
 }
 .ai-msg td {
   border: 1px solid rgba(255,255,255,0.08) !important;
-  padding: 7px 12px;
+  padding: 7px 14px;
   text-align: right;
   color: #e8e8e8 !important;
   background: rgba(255,255,255,0.02) !important;
-  word-break: break-word;
+  white-space: nowrap;        /* keep cells on one line; wrapper scrolls */
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ai-msg tr:nth-child(even) td {
   background: rgba(255,255,255,0.04) !important;

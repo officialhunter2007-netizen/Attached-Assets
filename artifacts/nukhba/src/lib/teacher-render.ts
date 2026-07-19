@@ -531,6 +531,17 @@ export function enhanceTeacherDom(root: HTMLElement | null): void {
   if (!root) return;
   promoteParagraphCallouts(root);
   classifyCallouts(root);
+
+  // Wrap every table in a scrollable div so:
+  //   • too-wide  → horizontal scroll (أعمدة كثيرة)
+  //   • too-tall  → vertical scroll   (صفوف كثيرة) capped by CSS max-height
+  root.querySelectorAll<HTMLTableElement>("table").forEach((table) => {
+    if (table.parentElement?.classList.contains("table-scroll-wrapper")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "table-scroll-wrapper";
+    table.parentNode?.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  });
   root.querySelectorAll<HTMLElement>("pre code").forEach((el) => {
     if (el.classList.contains("hljs") || el.classList.contains("output-text")) return;
     const pre = el.parentElement;
