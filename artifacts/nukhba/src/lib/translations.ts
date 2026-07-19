@@ -303,7 +303,7 @@ export const translations = {
       toolbarCopy: "نسخ",
       toolbarCopied: "نُسِخ",
       toolbarRegenerate: "أعد التوليد",
-      toolbarVisualExplain: "شرح بصري",
+      toolbarVisualExplain: "توضيح بصري",
       toolbarVisualExplainTitle: "شرح هذا المحتوى بصفحة تفاعلية مرئية",
       visualExplainModalTitle: "الشرح البصري التفاعلي",
       visualExplainLoading: "جارٍ إنشاء الشرح البصري…",

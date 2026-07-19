@@ -2331,7 +2331,7 @@ const MessageToolbar = memo(function MessageToolbar({
           disabled={!visualExplainEnabled}
         >
           <Eye className="w-3.5 h-3.5" />
-          <span className="msg-toolbar-label">{t.toolbarVisualExplain}</span>
+          <span style={{ fontSize: "11px", fontWeight: 700 }}>{t.toolbarVisualExplain}</span>
         </button>
       )}
     </div>

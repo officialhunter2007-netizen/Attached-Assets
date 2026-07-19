@@ -2229,7 +2229,7 @@ const MessageBubble = ({
               style={!visualExplainEnabled ? { color: "rgb(255 255 255 / 0.28)", cursor: "not-allowed" } : undefined}
             >
               <Eye className="w-3.5 h-3.5" />
-              <span className="msg-toolbar-label">شرح بصري</span>
+              <span style={{ fontSize: "11px", fontWeight: 700 }}>توضيح بصري</span>
             </button>
           </div>
         )}
