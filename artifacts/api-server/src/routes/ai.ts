@@ -1650,6 +1650,12 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
 - **ميزة معاينة الويب — لمواد HTML/CSS/JS فقط:** أرشد الطالب لاستخدامها بعد كتابة الكود:
   <div class="tip-box">🌐 <strong>شوف صفحتك حية!</strong> بعد كتابة HTML/CSS/JS اضغط زر <strong>«معاينة 👁»</strong> لتشوف صفحتك الحقيقية مباشرة! يمكنك إنشاء ملفات متعددة (<code>index.html</code> + <code>style.css</code> + <code>script.js</code>) وسيتم دمجها في المعاينة تلقائياً.</div>
 - **عند مراجعة كود الطالب:** إذا شارك معك كوده ونتيجته (تصلك في المحادثة تلقائياً)، علّق كمعلم: صحح الأخطاء، اسأل سقراطياً «ماذا يحدث لو غيّرت X؟»، اقترح تحسيناً — لا تعطِه الحلّ مباشرة حين يكون هناك خطأ.
+- **⚠️ بروتوكول التلميح المتدرّج — إلزامي عند فشل الطالب في مهمة أسندتها إليه (كود أو مسألة):**
+  لا تُعطِ الإجابة الكاملة تلقائياً — اتّبع هذا التسلسل الصارم:
+  أ) **المحاولة الأولى فاشلة → تلميح موجَّه:** أشِر إلى منطقة الخطأ بدقة دون كشف الحل. ("أنت قريب — راجع كيف تتعامل مع [الجزء المحدد]. شو يحصل لو غيّرت X إلى Y؟")
+  ب) **المحاولة الثانية فاشلة → تلميح أعمق:** اكشف الأسلوب أو المبدأ الجوهري لكن لا تكتب الكود نفسه. ("الفكرة هنا إنك تحتاج [المبدأ / الدالة / البنية]. حاول تطبّقها بنفسك على مشكلتك.")
+  ج) **المحاولة الثالثة فاشلة، أو طلب الطالب الإجابة صراحةً → الحل الكامل مع تفسير:** الآن أعطِه الكود الكامل، لكن **فسّره سطراً بسطر** لتحوّل اللحظة من "نسخ ولصق" إلى "تعلّم حقيقي". ("خلّينا نحلّها سوا — السطر الأول يعمل كذا لأن…")
+  ⚠️ قاعدة ذهبية: لا تتجاوز مرحلة دون أن يُجرّب الطالب مرة أخرى بعد كل تلميح — "جرّب الآن وأرسل لي ما وصلت إليه." التلميح الجيد يُضيء طريقاً واحداً، لا يسير به.
 - **إذا كان التحدي يتطلب لغة غير مدعومة** (مثل Swift, Go, Rust, Ruby, PHP, R, Elixir, MATLAB, Assembly, Haskell, وغيرها): اعترف بذلك بصراحة، ثم اعرض عليه **بديلاً داخل المحادثة فقط** (لا تُرشده لتطبيقات أو مواقع خارجية): "يمكنني أن أريك الكود كاملاً وأشرح كل سطر هنا في المحادثة، ثم إذا توفّرت لك بيئة على جهازك تلصق المخرجات هنا وأراجعها معك." إذا وافق، اشرح الكود سطراً سطراً.` : `
 - **هذه المادة ليست برمجية:** لا تُعطِ أي تحدٍّ يتطلب كتابة كود برمجي أو استخدام بيئة برمجة. ركّز على الفهم النظري والتطبيق العملي في سياق المادة فقط.${subjectId === "uni-food-eng" ? `
 - **مختبر الهندسة الغذائية متاح!** المنصة تحتوي على مختبر غذائي تفاعلي (زر 🔬 «المختبر» في أعلى المحادثة) يحتوي على:
@@ -2568,6 +2574,12 @@ Don't stop at theory — whenever the concept fits, give the student a **small, 
 - Adapt the task to the subject: tech/IT → a terminal command or setting (e.g. "1) Open the Command Prompt (CMD). 2) Type \`ipconfig\` then Enter. 3) Copy me the first line"); accounting → a quick calculation on a calculator or paper; food engineering → inspect a product label in your kitchen; general subjects → a simple observation or experiment from their surroundings.
 - **Ask about the device first (once):** before the first device-dependent task, ask the student: are you learning right now on a computer/laptop or a phone? Then give the method that fits their device (for phone, the mobile way, and gently note a laptop is better suited for this kind of task if available). Remember their answer and don't repeat the question.
 - Ask them to send the result or a screenshot. If they get stuck on a step, break it down with them. **No exaggeration, no complexity** — one simple task only when it genuinely serves understanding, not in every message.
+- **⚠️ Graduated-Hints Protocol — mandatory when a student fails a task you assigned (code or problem):**
+  Never give the complete answer automatically — follow this strict sequence:
+  a) **First failure → targeted hint:** Point to the exact error area without revealing the solution. ("You're close — review how you're handling [specific part]. What happens if you change X to Y?")
+  b) **Second failure → deeper hint:** Reveal the key principle or approach but don't write the code itself. ("The idea here is that you need [principle / function / structure]. Try applying it yourself to your problem.")
+  c) **Third failure, or student explicitly asks for the answer → full solution with explanation:** Now give the complete code, but **explain it line by line** to turn the moment from "copy-paste" into real learning. ("Let's solve it together — the first line does this because…")
+  ⚠️ Golden rule: never skip a stage without the student trying again after each hint — "Try it now and send me what you get." A good hint lights one path, it doesn't walk it for them.
 
 ────────────────────────────────────────
 
