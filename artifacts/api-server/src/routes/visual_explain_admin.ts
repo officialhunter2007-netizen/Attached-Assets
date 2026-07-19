@@ -196,7 +196,7 @@ router.get("/admin/visual-explain/requests", async (req: any, res: any): Promise
     const rows = await db.execute(sql`
       SELECT r.id, r.student_name, r.message_text, r.subject_name,
              r.context, r.status, r.claimed_by, r.claimed_at, r.created_at,
-             u.name AS claimer_name, u.email AS claimer_email
+             u.display_name AS claimer_name, u.email AS claimer_email
       FROM visual_explain_requests r
       LEFT JOIN users u ON u.id = r.claimed_by
       WHERE r.status IN ('pending', 'claimed')
@@ -225,11 +225,11 @@ router.post("/admin/visual-explain/claim/:id", async (req: any, res: any): Promi
     `);
     if (!(result as any).rows?.[0]) {
       const existing = await db.execute(sql`
-        SELECT u.name, u.email FROM visual_explain_requests r
+        SELECT u.display_name, u.email FROM visual_explain_requests r
         JOIN users u ON u.id = r.claimed_by WHERE r.id = ${id}
       `);
       const c = (existing as any).rows?.[0];
-      res.status(409).json({ error: `سبق أن استلمه ${c?.name ?? c?.email ?? "مشرف آخر"}` });
+      res.status(409).json({ error: `سبق أن استلمه ${c?.display_name ?? c?.email ?? "مشرف آخر"}` });
       return;
     }
     res.json({ ok: true });
