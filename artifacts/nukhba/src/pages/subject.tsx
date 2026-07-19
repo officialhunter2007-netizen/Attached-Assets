@@ -2323,8 +2323,8 @@ const MessageToolbar = memo(function MessageToolbar({
       {onVisualExplain && (
         <button
           type="button"
-          className="msg-toolbar-btn"
-          style={{ color: visualExplainEnabled ? "rgb(251 191 36 / 0.85)" : "rgb(255 255 255 / 0.28)", cursor: visualExplainEnabled ? "pointer" : "not-allowed" }}
+          className={`msg-toolbar-btn${visualExplainEnabled ? " msg-toolbar-btn-ve-active" : ""}`}
+          style={!visualExplainEnabled ? { color: "rgb(255 255 255 / 0.28)", cursor: "not-allowed" } : undefined}
           title={visualExplainEnabled ? t.toolbarVisualExplainTitle : "لا يوجد مشرف متاح حالياً"}
           aria-label={t.toolbarVisualExplainTitle}
           onClick={visualExplainEnabled ? onVisualExplain : undefined}
