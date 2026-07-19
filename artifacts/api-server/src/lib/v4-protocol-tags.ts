@@ -637,6 +637,7 @@ export function stripProtocolTags(text: string): string {
     .replace(EXAM_MASTERED_TAG_RE, "")
     .replace(PARAM_TAG_RE, "")
     .replace(SIMPLE_TAG_RE, "")
+    .replace(/\[TERM_EXPLAINED:[^\]]*\]/gi, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n");
 }

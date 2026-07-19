@@ -584,6 +584,11 @@ export async function buildTeacherSystemPrompt(opts: {
    *  tailSummary, capturedAt }. Injected as Layer 3a between context and
    *  memory so the teacher can organically bridge the two lessons. */
   previousLessonContext?: { lessonCode: string; tailSummary: string; capturedAt: string } | null;
+  /** Pre-loaded explained-terms note for this student+subject. When present
+   *  it lists all terms already explained so the teacher never re-explains
+   *  them, and avoids asking about un-explained terms. Built by the route
+   *  from v4_explained_terms and injected as a dedicated context layer. */
+  explainedTermsNote?: string;
 }): Promise<{ systemPrompt: string; askedFacet: { conceptIndex: number; facet: V4FacetKey } | null }> {
   const { student, lesson } = opts;
   const lang = opts.language ?? "ar";
@@ -768,8 +773,17 @@ export async function buildTeacherSystemPrompt(opts: {
         currentLessonCode: lesson.lesson.code,
       });
 
-  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LWEBPHOTO];
-  if (L3A) layers.splice(3, 0, L3A);
+  // Explained-terms context layer — injected between persona (L1) and lesson
+  // content (L2) so the teacher sees the "already known" list before it reads
+  // the new lesson material. When the list is non-empty it lists every term
+  // explained in previous sessions; when empty it tells the teacher to start
+  // from absolute zero.
+  const LEXPLAINED = opts.explainedTermsNote
+    ? `## 1a. ملف مصطلحات الطالب\n${opts.explainedTermsNote.trim()}`
+    : "## 1a. ملف المصطلحات\n[ملف المصطلحات: فارغ — الطالب لم يتعلّم بعد أي مصطلح في هذه المادة. ابدأ من الصفر التام.]";
+
+  const layers = [L1, LEXPLAINED, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LWEBPHOTO];
+  if (L3A) layers.splice(4, 0, L3A);
   if (LCODE) layers.push(LCODE);
   if (LOPEN) layers.push(LOPEN);
   if (LDIAG) layers.push(LDIAG);
@@ -1545,6 +1559,17 @@ export function buildPersonaLayer(
     "اسأل سؤالاً تطبيقياً في **سياق مختلف** عن المثال المُستخدم قبل الانتقال. إجابة صحيحة = إذن بالانتقال. إجابة خاطئة = أعد الشرح بطريقة ثالثة.",
     "إذا تكرر نفس نمط الخطأ مرتين: شخّص الجذر أولاً: «لاحظت إنك وقعت في هذا الفخ مرتين — الالتباس الجذري هو...» ثم سجّل `[MISTAKE: topic ||| description]`.",
     "",
+    "**🧠 قاعدة حجر الزاوية — افتراض الجهل التام + ملف المصطلحات (لا تُكسر أبداً):**",
+    "الافتراض الثابت: الطالب أمامك لا يعرف شيئاً سوى الأحرف الأبجدية. كل مصطلح تقني أو علمي — مهما بدا شائعاً — هو مجهول تماماً في ذهنه، حتى يُثبت **ملف مصطلحاته المُحقن في السياق** عكس ذلك.",
+    "",
+    "**بروتوكول ملف المصطلحات — إلزامي قبل كل رد:**",
+    "١. افحص قائمة «مصطلحات سبق شرحها» في السياق.",
+    "   - ✅ المصطلح موجود فيها: استخدمه بحرية — الطالب يعرفه.",
+    "   - ❌ غير موجود: أوقف كل شيء، اشرحه من الصفر التام (مشهد من الحياة ← تعريف ≤3 أسطر ← مثال ملموس)، ثم أصدر `[TERM_EXPLAINED: اسم المصطلح]` في نهاية الرد.",
+    "٢. ⛔ ممنوع باتاً: سؤال يفترض معرفة مصطلح لم يُشرح بعد. مثال القاتل: «لماذا تعتقد أن المصفوفات مهمة في الذكاء الاصطناعي؟» قبل شرح «المصفوفة» و«الذكاء الاصطناعي».",
+    "٣. ترتيب تقديم أي مصطلح جديد: (أ) مشهد من الحياة يخلق الحاجة ← (ب) تعريف بسيط ← (ج) مثال بأرقام/أشخاص حقيقيين ← (د) `[TERM_EXPLAINED: المصطلح]`.",
+    "٤. مصطلح مُشرح سابقاً (موجود في القائمة) لا يُعاد شرحه أبداً — استخدمه مباشرةً.",
+    "",
     "**🚨🚨🚨 قواعد الطوارئ — خرق أيٍّ منها يُدمّر تجربة الطالب ويخرجه من المنصة نهائياً**:",
     "- **⛔ تحقق من كل مثال برمجي قبل إرساله — فحص ذاتي إلزامي**: قبل أن ترسل أي مثال كود أو مقارنة «صحيح/خاطئ»، راجع ذاتياً ثلاثة أسئلة: (أ) في الكود الصحيح (وسم عادي `python`): أسماء المتغيرات/الدوال إنجليزية فعلاً؟ (ب) في أمثلة المقارنة، هل الخيار «الخاطئ» فعلاً خاطئ؟ **خطأ قاتل**: كتابة «مثل `student_count` وليس `count_students`» (كلاهما إنجليزي = مقارنة لا معنى لها ومخزية أمام الطالب). المقارنة الصحيحة: كود ` ```python ` بأسماء إنجليزية مقابل كود ` ```python-خطأ ` بأسماء عربية — النظام يحفظ العربية في وسم `-خطأ` تلقائياً. (ج) إذا كنت تُصحّح خطأ سابقاً، هل تغيّر الكود فعلاً؟ **إعادة نفس الكود بعد الاعتذار تُثبت للطالب أنك لم تصحح شيئاً وتُفقده الثقة نهائياً**.",
     "- **⛔ لا تُحل إلى أداة لم تُعرّفها في هذه الجلسة**: إذا لم تذكر محرر نُخبة `</>` في هذه المحادثة بعد، **لا تقل** «استخدم المحرر اللي شفناه قبل» — الطالب لم يشوفه أبداً. أول ذكر للمحرر يكون تعريفاً كاملاً: «في نُخبة عندنا زر `</>` اللي تشوفه أعلى المحادثة — لو ضغطته يفتح لك محرر كود تكتب فيه مباشرة». تذكّر السياق ولا تدّعِ أنك أريت شيئاً لم تُرِه.",
@@ -1561,6 +1586,7 @@ export function buildPersonaLayer(
     "  - `[DIFFICULTY_UP]` / `[DIFFICULTY_DOWN]`.",
     "  - `[UNIT_COMPLETE]` / `[STAGE_COMPLETE]` / `[LEVEL_COMPLETE]`.",
     "  - `[[CREATE_LAB_ENV: kind=diagnostic|decision|application|analysis|connection]]` — اطلب فتح معمل.",
+    "  - `[TERM_EXPLAINED: اسم المصطلح]` — أصدره في نهاية أي رد شرحت فيه مصطلحاً تقنياً/علمياً جديداً لأول مرة (مصطلح واحد لكل رد). لا يُعرض للطالب — يُحفظ في ملف مصطلحاته ويُحقن في سياق جلساتك المستقبلية معه.",
   ].join("\n");
 }
 

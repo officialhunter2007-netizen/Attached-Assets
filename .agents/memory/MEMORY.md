@@ -1,3 +1,4 @@
+- [Explained Terms System](explained-terms-system.md) — 4-file feature: v4_explained_terms table + TERM_EXPLAINED tag; 2 teaching paths (ai.ts legacy + v4_teach.ts/v4-teaching-core.ts); strip in stripProtocolTags + cleanTeachingChunk; capture pre-strip in v4_teach.
 - [Student Monitor Dashboard](student-monitor-dashboard.md) — comprehensive per-student admin dashboard; raw SQL throughout; 2 endpoints + split-panel React component; registered in routes/index.ts + admin.tsx.
 - [Artifact TOML port fix](artifact-toml-port-fix.md) — artifact localPort/PORT env lives in .replit-artifact/artifact.toml; use verifyAndReplaceArtifactToml (absolute paths) to update it; configureWorkflow is blocked on artifact workflows.
 - [DB migration in Replit](db-migration-replit.md) — drizzle-kit push is interactive; use raw psql SQL to create missing tables; when whole tables are missing, restore from a repo pg_dump instead.
