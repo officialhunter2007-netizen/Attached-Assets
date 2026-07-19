@@ -935,7 +935,8 @@ function cleanTeachingChunk(text: string): string {
     .replace(/\[MISTAKE:[^\]]*\]/gi, "")
     .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
     .replace(/\[STUDY_CARD_HINT\]/gi, "")
-    .replace(/\[GROWTH:[^\]]*\]/gi, "");
+    .replace(/\[GROWTH:[^\]]*\]/gi, "")
+    .replace(/\[TERM_EXPLAINED:[^\]]*\]/gi, "");
 }
 
 /**
@@ -1207,6 +1208,7 @@ function buildGeminiTeachingAddendum(opts: { isDiagnostic: boolean; imageEnabled
 ${planTag}- \`[POINT_DONE: N]\` — اكتبه عند تغطية النقطة رقم N من قائمة الفصل (وضع البروفسور). أمثلة: \`[POINT_DONE: 1]\`, \`[POINT_DONE: 5]\`.
 - \`[MISTAKE: topic ||| description]\` — لتسجيل خطأ مفاهيمي جديد (مرة واحدة في الرد كحد أقصى). \`topic\` قصير (≤ 5 كلمات)، \`description\` جملة واضحة.
 - \`[MISTAKE_RESOLVED: id]\` — لتأكيد حل خطأ سابق (الـ id من قائمة الأخطاء النشطة في السياق).
+- \`[TERM_EXPLAINED: اسم المصطلح]\` — أصدره في نهاية أي رد شرحت فيه مصطلحاً تقنياً أو علمياً جديداً لأول مرة (مصطلح واحد لكل رد). لا يُعرض للطالب — يُحفظ في ملف مصطلحاته تلقائياً ويُحقن في السياق بجلساتك المستقبلية معه.
 - \`[[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| غير ذلك]]\` — لإنشاء أزرار خيارات للطالب. **هذا هو الشكل الافتراضي لأي سؤال** — استخدمه في معظم الأسئلة ما لم تكن من الاستثناءات أدناه. **يجب** أن ينتهي بخيار "غير ذلك" دائماً. **الاستثناءات الوحيدة**: (١) سؤال يطلب كتابة كود، (٢) سؤال يطلب شرحاً طويلاً أو تحليلاً، (٣) سؤال يطلب إبداعاً أو رأياً شخصياً، (٤) سؤال «ماذا تلاحظ/تتوقّع» بعد عرض نتيجة.
   - **🔢 عدد وجودة الخيارات (إلزامي صارم)**: قدّم **دائماً من 3 إلى 4 خيارات حقيقية ومتمايزة** قبل "غير ذلك". كل خيار جملة كاملة ذات معنى تصلح كإجابة محتملة. **ممنوع منعاً باتاً** تقديم خيار واحد فقط أو خيارين أو خيارات مكرّرة/متشابهة أو خيار حشو مثل "لا أعرف"/"لست متأكداً" وحده (الطالب يملك "غير ذلك" أصلاً). اجعل إجابة واحدة صحيحة والبقية مشتّتات معقولة قريبة منها حتى يفكّر الطالب فعلاً — هذا ما يجعل الدرس تفاعلياً وممتعاً.
 - \`[[CREATE_LAB_ENV: وصف تفصيلي بالعربية]]\` — لإنشاء بيئة تطبيقية تفاعلية (المسار القديم — للتوافق فقط). **الآن:** استخدم بروتوكول المقابلة وأصدر \`[[LAB_INTAKE_DONE]]\` عند اكتمال الأسئلة الخمسة الإلزامية.
@@ -1230,6 +1232,30 @@ ${imageTagDoc}
 
 ✅ **صحيح:** \`[MISTAKE: الجمع ||| الطالب يخلط بين رمزَي + و × عند ترتيب العمليات]\`
 ❌ **خطأ:** \`[MISTAKE: الجمع - الطالب يخلط...]\` (الفاصل الصحيح هو \`|||\`)
+
+────────────────────────────────────────
+## 🧠 قاعدة حجر الزاوية — الجهل التام + ملف المصطلحات (لا تنكسر أبداً)
+
+**الافتراض الجوهري الثابت:** الطالب أمامك لا يعرف شيئاً سوى الأحرف الأبجدية. كل مصطلح تقني أو علمي أو تخصصي — مهما بدا شائعاً — هو مجهول تماماً في ذهنه، حتى يثبت **ملف مصطلحاته** عكس ذلك.
+
+**🗂️ بروتوكول ملف المصطلحات — خطوة بخطوة قبل كل رد:**
+قبل أن تستخدم أي مصطلح تقني أو علمي في سؤال أو شرح، افحص:
+
+١. هل يظهر في قائمة "مصطلحات سبق شرحها" في السياق؟
+   - ✅ **نعم:** استخدمه بحرية — الطالب يعرفه مسبقاً.
+   - ❌ **لا / القائمة فارغة:** أوقف كل شيء. **اشرح المصطلح أولاً من الصفر** (كأن الطالب يسمعه لأول مرة في حياته)، ثم أصدر \`[TERM_EXPLAINED: اسم المصطلح]\` في نهاية الرد.
+
+٢. **⛔ الخطأ القاتل الذي يُفسد كل درس:** سؤال يفترض معرفة مصطلح لم يُشرح بعد.
+   - ❌ مثال فادح: *"لماذا تعتقد أن المصفوفات مهمة في الذكاء الاصطناعي؟"* — قبل أن يعرف الطالب ما هي المصفوفة أو ما هو الذكاء الاصطناعي!
+   - ✅ الصحيح: اشرح "المصفوفة" أولاً بمثال ملموس من الحياة، ثم إذا فهمها، انتقل للسؤال.
+
+٣. **ترتيب التقديم الإلزامي لأي مصطلح جديد:**
+   - أ) مشهد من الحياة يخلق الحاجة للمصطلح قبل تسميته
+   - ب) تعريف واحد بسيط ≤ 3 أسطر
+   - ج) مثال ملموس بأرقام/أشخاص/أشياء حقيقية
+   - د) ثم وفقط ثم: \`[TERM_EXPLAINED: المصطلح]\` في نهاية الرد
+
+٤. **المصطلح المُشرح لا يُعاد شرحه:** إذا ظهر في قائمة "سبق شرحها"، يكفي الإشارة إليه أو استخدامه مباشرة — لا تُكرر شرحه مرةً أخرى.
 
 ────────────────────────────────────────
 ## 🗣️ النبرة الإنسانية — الأهم من كل ما سبق
@@ -1319,6 +1345,7 @@ You use special tags. The frontend depends on their exact literal format — any
 ${planTagEN}- \`[POINT_DONE: N]\` — write when covering point N from the lesson's list (professor mode). Examples: \`[POINT_DONE: 1]\`, \`[POINT_DONE: 5]\`.
 - \`[MISTAKE: topic ||| description]\` — to log a new conceptual error (once per response max). \`topic\` short (≤ 5 words), \`description\` one clear sentence.
 - \`[MISTAKE_RESOLVED: id]\` — to confirm a previous error has been corrected (the id from the active mistakes list in context).
+- \`[TERM_EXPLAINED: term name]\` — emit at end of any response where you explained a new technical/scientific term for the first time (one term per response). Not shown to student — auto-saved to their terms file and injected into context in future sessions.
 - \`[[ASK_OPTIONS: question ||| opt1 ||| opt2 ||| opt3 ||| Other]]\` — to create clickable answer buttons for the student. **Must** always end with "Other" as the literal last option.
 - \`[[CREATE_LAB_ENV: detailed English description]]\` — to create an interactive hands-on lab environment. Use the lab intake protocol — emit \`[[LAB_INTAKE_DONE]]\` after completing the five mandatory questions.
 - \`[[LAB_INTAKE_DONE]]\` — emit once only after the five-question lab intake is complete. Don't add any text after it.
@@ -1335,6 +1362,30 @@ ${imageTagDocEN}
 
 ✅ **Correct:** \`[MISTAKE: addition ||| Student confuses + and × operators when ordering operations]\`
 ❌ **Wrong:** \`[MISTAKE: addition - Student confuses...]\` (correct separator is \`|||\`)
+
+────────────────────────────────────────
+## 🧠 Cornerstone Rule — Total Ignorance + Terms File (never break this)
+
+**Fixed core assumption:** The student in front of you knows nothing beyond the alphabet. Every technical, scientific, or specialized term — no matter how common — is completely unknown to them, until their **terms file** proves otherwise.
+
+**🗂️ Terms File Protocol — step by step before every response:**
+Before using any technical or scientific term in a question or explanation, check:
+
+1. Does it appear in the "Previously explained terms" list in the context?
+   - ✅ **Yes:** Use it freely — the student already knows it.
+   - ❌ **No / list empty:** Stop everything. **Explain the term first from scratch** (as if the student is hearing it for the very first time in their life), then emit \`[TERM_EXPLAINED: term name]\` at the end of the response.
+
+2. **⛔ The fatal error that ruins every lesson:** A question that assumes knowledge of a term not yet explained.
+   - ❌ Classic fatal example: *"Why do you think matrices are important in AI?"* — before the student knows what a matrix is, or what AI is!
+   - ✅ Correct: Explain "matrix" first with a concrete real-life example, then once they understand it, proceed to the question.
+
+3. **Mandatory order for any new term:**
+   - a) A real-life scene that creates the need for the term before naming it
+   - b) One simple definition ≤ 3 lines
+   - c) A concrete example with real numbers/people/things
+   - d) Then and only then: \`[TERM_EXPLAINED: term]\` at the end of the response
+
+4. **An explained term is never re-explained:** If it appears in the "previously explained" list, simply reference or use it — do not explain it again.
 
 ────────────────────────────────────────
 ## 🗣️ Human Tone — More Important Than Anything Else
@@ -1563,6 +1614,30 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
       }
     } catch (err: any) {
       console.warn("[ai/teach] mistakes bank load failed:", err?.message || err);
+    }
+  }
+
+  // ── Load explained terms (student terms file) ────────────────────────────
+  // Every time the teacher explains a new term for the first time, it emits
+  // [TERM_EXPLAINED: term] which gets persisted here. On the next turn/session
+  // the list is injected into context so the model knows what's already known.
+  let explainedTermsNote = "";
+  if (!isDiagnosticPhase && subjectId) {
+    try {
+      const termRows = await db.execute(sql`
+        SELECT term FROM v4_explained_terms
+        WHERE user_id = ${userId} AND subject_id = ${subjectId}
+        ORDER BY explained_at ASC
+        LIMIT 150
+      `);
+      const termsList: string[] = (termRows as any).rows?.map((r: any) => r.term) ?? [];
+      if (termsList.length > 0) {
+        explainedTermsNote = `\n--- مصطلحات سبق شرحها لهذا الطالب (استخدمها بحرية — لا تُعِد شرحها) ---\n${termsList.map((t: string) => `  • ${t}`).join("\n")}\n--- أي مصطلح لا يظهر هنا = لم يُشرح بعد → اشرحه أولاً قبل استخدامه ---\n`;
+      } else {
+        explainedTermsNote = `\n[ملف المصطلحات: فارغ — الطالب لم يتعلّم بعد أي مصطلح في هذه المادة. ابدأ من الصفر التام.]\n`;
+      }
+    } catch (err: any) {
+      console.warn("[ai/teach] explained terms load failed:", err?.message || err);
     }
   }
 
@@ -2300,7 +2375,7 @@ ${Array.isArray(currentStageContract.microSteps) ? (currentStageContract.microSt
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ` : ""}
 ${sessionContextNote}
-${mistakesBankNote}
+${mistakesBankNote}${explainedTermsNote}
 **📚 استخدام بنك الأخطاء (مهم للعمق التعليمي):**
 - إذا ظهرت قائمة "بنك أخطاء الطالب النشطة" أعلاه، فهذه أخطاء حقيقية وقع فيها الطالب في جلسات سابقة ولم يُصحَّح فهمها بعد.
 - اربط شرحك الجديد بالأخطاء ذات الصلة عندما يكون ذلك طبيعياً (لا تذكرها كلها مرة واحدة). مثال: "لاحظت قبل أيام أنك خلطت بين [س] و [ص] — دعنا نتأكد الآن أن هذه النقطة ثابتة قبل أن نكمل."
@@ -2681,7 +2756,7 @@ ${Array.isArray(currentStageContract.microSteps) ? (currentStageContract.microSt
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ` : ""}
 ${sessionContextNote}
-${mistakesBankNote}
+${mistakesBankNote}${explainedTermsNote}
 **📚 Mistake Bank Usage:**
 - If a "Student's Active Mistake Bank" list appears above, these are real errors from previous sessions not yet corrected.
 - Link new explanations to related mistakes when natural (not all at once).
@@ -4382,6 +4457,28 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     }
   }
 
+  // ── Persist explained terms tags from this turn ──────────────────────────
+  // The teaching prompt instructs the model to emit [TERM_EXPLAINED: term]
+  // once per response when it explains a new technical term for the first time.
+  // We parse and store it so future sessions inject the "already known" list.
+  if (subjectId && fullResponse.trim().length > 0 && !isDiagnosticPhase) {
+    try {
+      const termMatches = Array.from(fullResponse.matchAll(/\[TERM_EXPLAINED:\s*([^\]]+?)\s*\]/gi));
+      for (const tm of termMatches) {
+        const term = tm[1].trim().slice(0, 200);
+        if (term && term.length > 1) {
+          await db.execute(sql`
+            INSERT INTO v4_explained_terms (user_id, subject_id, term, explained_at)
+            VALUES (${userId}, ${subjectId}, ${term}, NOW())
+            ON CONFLICT (user_id, subject_id, term) DO NOTHING
+          `);
+        }
+      }
+    } catch (err: any) {
+      console.warn("[ai/teach] explained terms persist failed:", err?.message || err);
+    }
+  }
+
   // Professor mode — point coverage tracking. The model emits [POINT_DONE:N]
   // tags each time it actually teaches a point from the chapter checklist.
   // Persist those into material_chapter_progress.covered_points so the next
@@ -4443,6 +4540,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
       .replace(/\[STAGE_COMPLETE\]/g, "")
       .replace(/\[MISTAKE:[^\]]*\]/gi, "")
       .replace(/\[MISTAKE_RESOLVED:\s*\d{1,6}\s*\]/gi, "")
+      .replace(/\[TERM_EXPLAINED:[^\]]*\]/gi, "")
       .replace(/\[\[[^\]]+\]\]/g, "")
       .slice(0, 4000);
     (async () => {
