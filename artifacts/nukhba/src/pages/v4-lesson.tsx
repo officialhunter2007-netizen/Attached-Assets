@@ -753,6 +753,12 @@ export default function V4Lesson() {
           if (d.status === "expired") {
             if (!cancelled) {
               setPendingVERequest(null);
+              // Re-check supervisor availability immediately so the button re-enables
+              // without waiting for the 30-second polling interval.
+              fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+                .catch(() => {});
               setVisualOverlay(prev =>
                 prev?.mode === "admin" && prev.loading
                   ? { html: null, loading: false, error: "لا يوجد مشرف متاح الآن — حاول مرة أخرى لاحقاً.", mode: "admin" }
@@ -764,6 +770,11 @@ export default function V4Lesson() {
           if (d.status === "error") {
             if (!cancelled) {
               setPendingVERequest(null);
+              // Re-check supervisor availability immediately so the button re-enables.
+              fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+                .catch(() => {});
               setVisualOverlay(prev =>
                 prev?.mode === "admin" && prev.loading
                   ? { html: null, loading: false, error: d.error || "تعذّر إنشاء الشرح البصري.", mode: "admin" }
@@ -776,6 +787,11 @@ export default function V4Lesson() {
       }
       if (!cancelled) {
         setPendingVERequest(null);
+        // Re-check supervisor availability immediately so the button re-enables.
+        fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+          .catch(() => {});
         setVisualOverlay(prev =>
           prev?.mode === "admin" && prev.loading
             ? { html: null, loading: false, error: "انتهت مهلة الانتظار (15 دقيقة) — حاول مرة أخرى", mode: "admin" }
