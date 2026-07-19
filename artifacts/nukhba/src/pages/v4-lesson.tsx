@@ -816,7 +816,7 @@ export default function V4Lesson() {
   // mismatch makes it describe a button the student can't see.
   const isProgramming = useMemo(
     () =>
-      /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b)/i.test(
+      /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b|\bc\b|\bcpp\b)/i.test(
         slug,
       ),
     [slug],
