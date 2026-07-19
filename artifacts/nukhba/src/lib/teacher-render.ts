@@ -409,8 +409,9 @@ function buildOutputCardHtml(text: string): string {
   return (
     `<pre class="output-enhanced">` +
     `<div class="output-head">` +
-    `<span class="output-icon" aria-hidden="true">▶</span>` +
-    `<span class="output-lang">الناتج على الشاشة</span>` +
+    `<span class="output-icon" aria-hidden="true"></span>` +
+    `<span class="output-lang">مخرجات التشغيل</span>` +
+    `<span class="output-shell-label" aria-hidden="true">bash $</span>` +
     `<button type="button" class="copy-code-btn" aria-label="نسخ الناتج">نسخ</button>` +
     `</div>` +
     `<code class="output-text">${escapeHtml(outText)}</code>` +
@@ -596,6 +597,21 @@ export function enhanceTeacherDom(root: HTMLElement | null): void {
         decorateOutputBlock(pre, el);
         return;
       }
+      // Heuristic: model sometimes writes the word "output" as the first line
+      // inside a generic fenced block instead of using ```output as the lang.
+      // Detect this: no known lang AND first non-empty line is exactly "output"
+      // (case-insensitive). Strip the sentinel line, then treat as output.
+      if (!rawLang && pre && pre.tagName === "PRE" && !pre.querySelector(".output-head")) {
+        const rawText = el.textContent || "";
+        const firstNewline = rawText.indexOf("\n");
+        const firstLine = (firstNewline === -1 ? rawText : rawText.slice(0, firstNewline)).trim().toLowerCase();
+        if (firstLine === "output") {
+          // Strip the "output" sentinel line from the displayed text
+          el.textContent = firstNewline === -1 ? "" : rawText.slice(firstNewline + 1);
+          decorateOutputBlock(pre, el);
+          return;
+        }
+      }
       let langName = "";
       if (langMatch && hljs.getLanguage(langMatch[1])) {
         const res = hljs.highlight(el.textContent || "", { language: langMatch[1], ignoreIllegals: true });
@@ -630,11 +646,15 @@ function decorateOutputBlock(pre: HTMLElement, code: HTMLElement): void {
   const icon = document.createElement("span");
   icon.className = "output-icon";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = "▶";
 
   const label = document.createElement("span");
   label.className = "output-lang";
-  label.textContent = "الناتج على الشاشة";
+  label.textContent = "مخرجات التشغيل";
+
+  const shell = document.createElement("span");
+  shell.className = "output-shell-label";
+  shell.setAttribute("aria-hidden", "true");
+  shell.textContent = "bash $";
 
   const btn = document.createElement("button");
   btn.type = "button";
@@ -644,6 +664,7 @@ function decorateOutputBlock(pre: HTMLElement, code: HTMLElement): void {
 
   head.appendChild(icon);
   head.appendChild(label);
+  head.appendChild(shell);
   head.appendChild(btn);
 
   pre.insertBefore(head, code);
