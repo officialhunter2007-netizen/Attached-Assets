@@ -327,8 +327,10 @@ function stripLineComments(code: string, lang: string): string {
       }
       i++;
     }
-    const trimmed = result.trimEnd();
-    if (trimmed) out.push(trimmed);
+    // Always push — blank lines are semantically meaningful in code (they
+    // separate logical sections). trimEnd() only strips trailing spaces from
+    // non-empty lines. Leading/trailing blank lines are cleaned below.
+    out.push(result.trimEnd());
   }
 
   while (out.length > 0 && !out[0].trim()) out.shift();

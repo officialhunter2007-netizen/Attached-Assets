@@ -453,8 +453,21 @@ let blockquoteDepth = 0;
 marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }): string {
-      if (lang && OUTPUT_LANGS.has(lang.toLowerCase().trim())) {
+      const normalizedLang = lang ? lang.toLowerCase().trim() : "";
+      if (normalizedLang && OUTPUT_LANGS.has(normalizedLang)) {
         return buildOutputCardHtml(text);
+      }
+      // Heuristic: model writes "output" as first line inside a generic fence
+      // (```\noutput\nName: Ahmed\n…\n```) instead of using ```output as the
+      // lang tag. Detect this BEFORE hljs runs — otherwise hljs auto-detects
+      // the content as YAML/text and decorateCodeBlock marks it as a code block;
+      // by then enhanceTeacherDom skips it (`.hljs` guard fires first).
+      if (!normalizedLang) {
+        const firstNl = text.indexOf("\n");
+        const firstLine = (firstNl === -1 ? text : text.slice(0, firstNl)).trim().toLowerCase();
+        if (firstLine === "output") {
+          return buildOutputCardHtml(firstNl === -1 ? "" : text.slice(firstNl + 1));
+        }
       }
       try {
         const language = lang && hljs.getLanguage(lang) ? lang : null;
