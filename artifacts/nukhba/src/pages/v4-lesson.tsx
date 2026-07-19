@@ -369,6 +369,36 @@ function stripFenceComments(src: string): string {
  * the opening fence to start a new line, and re-close it — guaranteeing
  * marked sees a clean ```lang\n…\n``` every time. Inline single-backtick code
  * is untouched. */
+/**
+ * Repairs GFM tables the model emitted with blank lines between rows.
+ * marked requires ALL pipe-rows (header, separator, body) to be strictly
+ * contiguous — a single blank line causes the header to render as a <p>
+ * and the rest to become a bodyless table.
+ *
+ * Rule: whenever a pipe-row (first non-space char is |) is followed by one
+ * or more blank lines and then another pipe-row, collapse those blank lines.
+ * Blank lines between a pipe-row and any non-pipe content are left alone so
+ * surrounding paragraphs and other blocks are not disturbed.
+ */
+function normalizeMarkdownTables(src: string): string {
+  if (!src.includes("|")) return src;
+  const lines = src.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    if (/^\s*\|/.test(lines[i])) {
+      // Peek ahead — skip blank lines and check whether the next non-blank
+      // line is also a pipe-row.  If so, drop the blank lines between them.
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "") j++;
+      if (j > i + 1 && j < lines.length && /^\s*\|/.test(lines[j])) {
+        i = j - 1; // skip blanks; the loop will increment to j
+      }
+    }
+  }
+  return out.join("\n");
+}
+
 function normalizeFences(src: string): string {
   if (!src || src.indexOf("```") === -1) return src;
   const parts = src.split("```");
@@ -447,7 +477,12 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   // (`pr` `int` → `print`) before marked turns them into two separate badges.
   const merged = mergeSplitCodeTokens(stripped);
 
-  const html = marked.parse(ensureMarkdownBlockGaps(merged ?? ""), { async: false }) as string;
+  // Repair GFM tables broken by blank lines between header/separator/body rows.
+  // marked requires ALL rows to be contiguous — a single blank line makes it
+  // render the header row as a paragraph instead of <thead>.
+  const withTables = normalizeMarkdownTables(merged ?? "");
+
+  const html = marked.parse(ensureMarkdownBlockGaps(withTables), { async: false }) as string;
   // Sanitize FIRST so DOMPurify never sees KaTeX's complex span tree,
   // then restore math — placeholders are plain ASCII and survive sanitization.
   const sanitized = DOMPurify.sanitize(html, {

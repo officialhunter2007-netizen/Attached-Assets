@@ -93,6 +93,25 @@ function injectCitationButtons(
 }
 
 // ─── Minimal render helpers (subset of v4-lesson's renderHtml) ───────────────
+// Repairs GFM tables where the model inserted blank lines between header /
+// separator / body rows — marked requires them to be contiguous or it renders
+// the header as a plain paragraph instead of <thead>.
+function normalizeMarkdownTables(src: string): string {
+  if (!src.includes("|")) return src;
+  const lines = src.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    if (/^\s*\|/.test(lines[i])) {
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "") j++;
+      if (j > i + 1 && j < lines.length && /^\s*\|/.test(lines[j])) {
+        i = j - 1;
+      }
+    }
+  }
+  return out.join("\n");
+}
 // Strip complete and partial [[ASK_OPTIONS:...]] and status tags so they never
 // leak into the markdown renderer as raw text.
 function sanitizeProtocol(raw: string): string {
@@ -198,7 +217,8 @@ function renderHtml(raw: string): string {
   const withFences = normalizeFences(withNoise);
   const withNoComments = stripFenceCommentsBooklet(withFences);
   const { text: stripped, blocks } = extractMathBlocks(withNoComments);
-  const html = marked.parse(ensureMarkdownBlockGaps(stripped ?? ""), { async: false }) as string;
+  const withTables = normalizeMarkdownTables(stripped ?? "");
+  const html = marked.parse(ensureMarkdownBlockGaps(withTables), { async: false }) as string;
   // Sanitize FIRST so DOMPurify never sees KaTeX's complex span tree,
   // then restore math — placeholders are plain ASCII and survive sanitization.
   const sanitized = DOMPurify.sanitize(html, {
