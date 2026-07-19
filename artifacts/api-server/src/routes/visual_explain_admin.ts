@@ -36,15 +36,15 @@ async function ensureTables(): Promise<void> {
       status       TEXT NOT NULL DEFAULT 'pending',
       claimed_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
       claimed_at   TIMESTAMPTZ,
+      completed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       html_result  TEXT,
       completed_at TIMESTAMPTZ,
       created_at   TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-  // backfill column for existing tables
-  await db.execute(sql`
-    ALTER TABLE visual_explain_requests ADD COLUMN IF NOT EXISTS context JSONB
-  `);
+  // backfill columns for existing tables
+  await db.execute(sql`ALTER TABLE visual_explain_requests ADD COLUMN IF NOT EXISTS context JSONB`);
+  await db.execute(sql`ALTER TABLE visual_explain_requests ADD COLUMN IF NOT EXISTS completed_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS ver_status_idx ON visual_explain_requests(status)
   `);
@@ -168,7 +168,8 @@ router.get("/admin/visual-explain/readiness", async (req: any, res: any): Promis
   if (!adminId) return;
   try {
     const rows = await db.execute(sql`SELECT is_ready FROM admin_readiness WHERE admin_id = ${adminId}`);
-    res.json({ isReady: (rows as any).rows?.[0]?.is_ready ?? false });
+    // Return adminId so the FE knows which requests belong to this admin
+    res.json({ isReady: (rows as any).rows?.[0]?.is_ready ?? false, adminId });
   } catch (e: any) { res.status(500).json({ error: e?.message }); }
 });
 
@@ -195,13 +196,16 @@ router.get("/admin/visual-explain/requests", async (req: any, res: any): Promise
   try {
     const rows = await db.execute(sql`
       SELECT r.id, r.student_name, r.message_text, r.subject_name,
-             r.context, r.status, r.claimed_by, r.claimed_at, r.created_at,
-             u.display_name AS claimer_name, u.email AS claimer_email
+             r.context, r.status,
+             r.claimed_by, r.claimed_at,
+             r.completed_by, r.completed_at, r.created_at,
+             cu.display_name AS claimer_name,  cu.email AS claimer_email,
+             co.display_name AS completer_name, co.email AS completer_email
       FROM visual_explain_requests r
-      LEFT JOIN users u ON u.id = r.claimed_by
+      LEFT JOIN users cu ON cu.id = r.claimed_by
+      LEFT JOIN users co ON co.id = r.completed_by
       WHERE r.status IN ('pending', 'claimed')
-         OR (r.status = 'completed' AND r.claimed_by = ${adminId}
-             AND r.completed_at > NOW() - INTERVAL '2 hours')
+         OR (r.status = 'completed' AND r.completed_at > NOW() - INTERVAL '2 hours')
       ORDER BY r.created_at DESC
       LIMIT 50
     `);
@@ -248,7 +252,8 @@ router.post("/admin/visual-explain/complete/:id", async (req: any, res: any): Pr
   try {
     const result = await db.execute(sql`
       UPDATE visual_explain_requests
-      SET status = 'completed', html_result = ${html}, completed_at = NOW()
+      SET status = 'completed', html_result = ${html},
+          completed_by = ${adminId}, completed_at = NOW()
       WHERE id = ${id} AND claimed_by = ${adminId}
       RETURNING id
     `);
