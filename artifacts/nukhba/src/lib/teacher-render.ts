@@ -532,6 +532,32 @@ export function enhanceTeacherDom(root: HTMLElement | null): void {
   promoteParagraphCallouts(root);
   classifyCallouts(root);
 
+  // ── RTL arrow fix ──────────────────────────────────────────────────────────
+  // The whole .ai-msg container uses dir="rtl". The Unicode RIGHT ARROW (→)
+  // points towards the START of reading in RTL, which is visually backwards.
+  // Replace every prose → with ← so the arrow always points forward.
+  // We deliberately skip <code> and <pre> blocks (code is LTR).
+  {
+    const PROSE_TAGS = new Set(["P","LI","TD","TH","BLOCKQUOTE","H1","H2","H3","H4","H5","H6","SPAN","DIV","LABEL"]);
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (node.textContent?.includes("→")) {
+          node.textContent = node.textContent.replace(/→/g, "←");
+        }
+        return;
+      }
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tag = (node as Element).tagName;
+        // Never enter code/pre — their content is LTR and arrows are intentional
+        if (tag === "CODE" || tag === "PRE") return;
+        if (PROSE_TAGS.has(tag) || tag === "DIV" || tag === "SPAN") {
+          node.childNodes.forEach(walk);
+        }
+      }
+    };
+    root.childNodes.forEach(walk);
+  }
+
   // Wrap every table in a scrollable div so:
   //   • too-wide  → horizontal scroll (أعمدة كثيرة)
   //   • too-tall  → vertical scroll   (صفوف كثيرة) capped by CSS max-height
