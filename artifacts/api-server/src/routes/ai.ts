@@ -5146,100 +5146,47 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
   }
 });
 
-// ── /api/ai/run-code via Wandbox sandbox API ──────────────────────────────────
-// Code execution is proxied through Wandbox (https://wandbox.org) — a free,
-// no-key-required sandbox that supports Python, JS, TS, C, C++, Java, etc.
-// No user code ever runs on the host — all execution is fully sandboxed.
-const WANDBOX_URL = "https://wandbox.org/api/compile.json";
-const WANDBOX_TIMEOUT_MS = 20_000;
-
-// Maps our language IDs → Wandbox compiler identifiers.
-const WANDBOX_COMPILER_MAP: Record<string, string> = {
-  python:     "cpython-3.12.7",
-  javascript: "nodejs-20.17.0",
-  typescript: "typescript-5.6.2",
-  java:       "openjdk-jdk-22+36",
-  cpp:        "gcc-13.2.0",
-  c:          "gcc-13.2.0-c",
-  bash:       "bash",
-  sql:        "sqlite-3.46.1",
-  rust:       "rust-1.82.0",
-  kotlin:     "kotlin-1.9.10",
+// ── Wandbox fallback — only for languages not installed locally ────────────────
+const WANDBOX_URL      = "https://wandbox.org/api/compile.json";
+const WANDBOX_FALLBACK: Record<string, string> = {
+  kotlin: "kotlin-1.9.10",
+  rust:   "rust-1.82.0",
 };
 
-router.post("/ai/run-code", async (req, res) => {
-  const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
-
-  const { code, language, stdin, codes } = req.body as {
-    code?: string;
-    language?: string;
-    stdin?: string;
-    codes?: Array<{ file: string; code: string }>;
-  };
-  if (!code || !language) {
-    return res.status(400).json({ error: "code and language are required" });
-  }
-
-  const compiler = WANDBOX_COMPILER_MAP[language];
-  if (!compiler) {
-    return res.status(400).json({
-      error: `اللغة "${language}" غير مدعومة في بيئة التنفيذ حالياً`,
-      output: "",
-      exitCode: 1,
-    });
-  }
-
+async function runViaWandbox(
+  compiler: string,
+  code: string,
+  opts?: { stdin?: string; codes?: Array<{ file: string; code: string }> },
+): Promise<{ output: string; error: string; exitCode: number }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WANDBOX_TIMEOUT_MS);
-
-  const wandboxBody: Record<string, unknown> = { compiler, code };
-  if (stdin && stdin.trim()) wandboxBody.stdin = stdin;
-  if (codes && codes.length > 0) wandboxBody.codes = codes;
-
+  const timer = setTimeout(() => controller.abort(), 25_000);
+  const body: Record<string, unknown> = { compiler, code };
+  if (opts?.stdin?.trim()) body.stdin = opts.stdin;
+  if (opts?.codes?.length) body.codes = opts.codes;
   try {
-    const wandboxRes = await fetch(WANDBOX_URL, {
+    const r = await fetch(WANDBOX_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify(wandboxBody),
+      body: JSON.stringify(body),
     });
-
     clearTimeout(timer);
-
-    if (!wandboxRes.ok) {
-      const body = await wandboxRes.text().catch(() => "");
-      return res.status(502).json({
-        error: `خطأ في خادم التنفيذ (${wandboxRes.status})`,
-        output: "",
-        exitCode: 1,
-        detail: body,
-      });
-    }
-
-    const data = await wandboxRes.json() as {
+    if (!r.ok) throw new Error(`Wandbox HTTP ${r.status}`);
+    const d = await r.json() as {
       status?: string;
-      program_output?: string;
-      program_error?: string;
-      compiler_error?: string;
-      compiler_output?: string;
+      program_output?: string; program_error?: string;
+      compiler_output?: string; compiler_error?: string;
     };
-
-    const exitCode = parseInt(data.status ?? "0", 10);
-    const output = data.program_output || data.compiler_output || "";
-    const error  = data.program_error  || data.compiler_error  || "";
-
-    return res.json({ output, error, exitCode });
-
-  } catch (err: unknown) {
+    return {
+      output:   d.program_output  || d.compiler_output || "",
+      error:    d.program_error   || d.compiler_error  || "",
+      exitCode: parseInt(d.status ?? "0", 10),
+    };
+  } catch (e: any) {
     clearTimeout(timer);
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("abort") || msg.includes("AbortError")) {
-      return res.status(504).json({ error: "انتهت مهلة تنفيذ الكود (20 ثانية)", output: "", exitCode: 1 });
-    }
-    return res.status(502).json({ error: "تعذّر الوصول إلى خادم التنفيذ — تحقق من اتصالك", output: "", exitCode: 1, detail: msg });
+    throw e;
   }
-});
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7915,9 +7862,19 @@ async function runCodeLocally(
   language: string,
   code: string,
   timeoutMs = 10_000,
+  options?: { stdin?: string; codes?: Array<{ file: string; code: string }> },
 ): Promise<{ output: string; exitCode: number }> {
   const dir = await mkdtemp(join(tmpdir(), "nukhba-code-"));
   try {
+    // Write any sidecar files (multi-file projects)
+    if (options?.codes?.length) {
+      for (const { file: fname, code: fcontent } of options.codes) {
+        // Strip any path traversal — keep basename only
+        const safe = fname.replace(/\.\./g, "").replace(/^\/+/, "");
+        if (safe) await writeFile(join(dir, safe), fcontent);
+      }
+    }
+
     const execAsync = (cmd: string, args: string[], opts?: any) =>
       new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
         const child = spawn(cmd, args, { cwd: dir, env: { ...process.env, HOME: dir }, ...opts });
@@ -7931,6 +7888,11 @@ async function runCodeLocally(
           clearTimeout(timer);
           resolve({ stdout: cap(stdout), stderr: cap(stderr), code: code ?? 1 });
         });
+        // Pipe stdin if provided
+        if (options?.stdin) {
+          child.stdin?.write(options.stdin);
+          child.stdin?.end();
+        }
       });
 
     let output = "";
@@ -8023,7 +7985,13 @@ router.post("/ai/run-code", async (req, res): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const { code, language } = (req.body ?? {}) as { code?: string; language?: string };
+  const { code, language, stdin, codes } = (req.body ?? {}) as {
+    code?: string;
+    language?: string;
+    stdin?: string;
+    codes?: Array<{ file: string; code: string }>;
+  };
+
   if (!code || typeof code !== "string" || code.trim().length === 0) {
     return res.status(400).json({ error: "code مطلوب" });
   }
@@ -8034,18 +8002,42 @@ router.post("/ai/run-code", async (req, res): Promise<any> => {
     return res.status(400).json({ error: "الكود طويل جداً (الحد الأقصى ١٠٠ ألف حرف)" });
   }
 
+  // Languages with browser preview — no terminal execution
   if (language === "html" || language === "css") {
     return res.json({ output: "صفحات HTML/CSS تعمل في نافذة المعاينة — اضغط زر المعاينة 👁️", exitCode: 0 });
   }
+
+  // SQL — not supported locally
   if (language === "sql") {
     return res.json({ output: "تشغيل SQL غير مدعوم في هذه البيئة مباشرةً.", exitCode: 0 });
   }
 
+  // Dart — no local runtime, point to DartPad
+  if (language === "dart") {
+    return res.json({ output: "Dart غير مثبّت في هذه البيئة — جرّب dartpad.dev للتنفيذ المباشر.", exitCode: 0 });
+  }
+
+  // Kotlin / Rust → use Wandbox (not installed locally)
+  const wandboxCompiler = WANDBOX_FALLBACK[language];
+  if (wandboxCompiler) {
+    try {
+      const result = await runViaWandbox(wandboxCompiler, code, { stdin, codes });
+      return res.json(result);
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      if (msg.includes("abort") || msg.toLowerCase().includes("timeout")) {
+        return res.status(504).json({ error: "انتهت مهلة التنفيذ (25 ثانية)", output: "", exitCode: 1 });
+      }
+      return res.status(502).json({ error: "تعذّر الوصول لخادم التنفيذ الخارجي — " + msg, output: "", exitCode: 1 });
+    }
+  }
+
+  // Local execution for: javascript, typescript, python, bash, c, cpp, java
   try {
-    const { output, exitCode } = await runCodeLocally(language, code, 10_000);
+    const { output, exitCode } = await runCodeLocally(language, code, 15_000, { stdin, codes });
     return res.json({ output, exitCode });
   } catch (err: any) {
-    console.error("[run-code] error:", err?.message || err);
+    console.error("[run-code] local error:", err?.message || err);
     return res.status(500).json({ error: "تعذّر تشغيل الكود — " + (err?.message || "خطأ غير معروف") });
   }
 });
