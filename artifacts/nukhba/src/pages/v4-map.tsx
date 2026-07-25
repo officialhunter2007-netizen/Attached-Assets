@@ -124,7 +124,10 @@ type RenderItem =
   | { type: "unit"; unit: UnitTree; stageIndex: number; expanded: boolean }
   | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean }
   | { type: "podcast"; podcast: PodcastItem; xOff: number }
-  | { type: "story"; story: StoryItem; xOff: number; showConnector: boolean };
+  | { type: "story"; story: StoryItem; xOff: number; showConnector: boolean }
+  | { type: "quiz_action"; unitCode: string; unitName: string }
+  | { type: "stage_quiz_action"; stageIndex: number; stageName: string; levelIndex: number }
+  | { type: "level_quiz_action"; levelIndex: number; levelName: string };
 
 function flattenMap(mapData: MapData): FlatNode[] {
   const nodes: FlatNode[] = [];
@@ -240,6 +243,11 @@ function applyNodeCompleted(prev: MapResponse, nodeId: string, score: number, pa
     ...prev,
     map: { ...prev.map, stages: newStages, levelTest: newLevelTest, completedNodes, progressPct },
   };
+}
+
+/** Alias used by the HTML quiz score callback — marks unit test completed. */
+function bumpNodeStatus(prev: MapResponse, examCode: string, score: number): MapResponse {
+  return applyNodeCompleted(prev, examCode, score, score >= 70);
 }
 
 /**
@@ -1153,6 +1161,19 @@ export default function V4Map() {
   const [podcastsByUnit, setPodcastsByUnit] = useState<Record<string, PodcastItem[]>>({});
   const [storiesByUnit, setStoriesByUnit] = useState<Record<string, StoryItem[]>>({});
   const [storyModal, setStoryModal] = useState<{ id: number; title: string } | null>(null);
+  // ── AI quiz generation state ─────────────────────────────────────────────────
+  const [quizGenLoading, setQuizGenLoading] = useState<Set<string>>(new Set());
+  const [quizGenError, setQuizGenError] = useState<string | null>(null);
+  // Quizzes generated during this session (unitCode → quizId)
+  const [sessionQuizIds, setSessionQuizIds] = useState<Record<string, number>>({});
+  // Stage quizzes (key = `${levelIndex}-${stageIndex}`)
+  const [stageQuizGenLoading, setStageQuizGenLoading] = useState<Set<string>>(new Set());
+  const [stageQuizGenError, setStageQuizGenError] = useState<string | null>(null);
+  const [sessionStageQuizIds, setSessionStageQuizIds] = useState<Record<string, number>>({});
+  // Level quizzes (key = levelIndex string)
+  const [levelQuizGenLoading, setLevelQuizGenLoading] = useState<Set<string>>(new Set());
+  const [levelQuizGenError, setLevelQuizGenError] = useState<string | null>(null);
+  const [sessionLevelQuizIds, setSessionLevelQuizIds] = useState<Record<string, number>>({});
   // Guards re-running auto-expand on SSE events (only re-run when the viewed
   // level actually changes, not on incremental node-status updates).
   const lastAutoExpandedForLevel = useRef<number | null>(null);
@@ -1463,14 +1484,31 @@ export default function V4Map() {
         // Emit in sort_order, stable (equal sort → insertion order)
         contentItems.sort((a, b) => a.sort - b.sort);
         for (const ci of contentItems) ci.run();
+        // AI quiz button — always shown at end of each expanded unit
+        items.push({ type: "quiz_action", unitCode: unit.code, unitName: unit.name });
       }
       if (stage.hasStageTest && stage.stageTest) {
         pushNode({ id: stage.stageTest.code, label: "اختبار المرحلة", sublabel: stage.name, kind: "stage_test", status: stage.stageTest.status });
+      }
+      // Stage quiz button — shown at the end of every expanded stage
+      if (stageExpanded) {
+        items.push({
+          type: "stage_quiz_action",
+          stageIndex: stage.stageIndex,
+          stageName: stage.name,
+          levelIndex: m.viewedLevelIndex ?? m.currentLevelIndex,
+        });
       }
     }
     if (m.levelTest) {
       pushNode({ id: m.levelTest.code, label: "اختبار المستوى", sublabel: m.levelName, kind: "level_test", status: m.levelTest.status });
     }
+    // Level quiz button — always shown at the very end of the map
+    items.push({
+      type: "level_quiz_action",
+      levelIndex: m.viewedLevelIndex ?? m.currentLevelIndex,
+      levelName: m.levelName,
+    });
     return items;
   }, [data, expandedStages, expandedUnits, podcastsByUnit, storiesByUnit]);
 
@@ -1505,6 +1543,115 @@ export default function V4Map() {
       unitName: node.sublabel ?? null,
       kind: node.kind === "stage_test" ? "stage_exam" : "level_exam",
     });
+  }
+
+  // ── AI quiz generation handler ───────────────────────────────────────────────
+  async function handleUnitQuizClick(unitCode: string, unitName: string) {
+    if (quizGenLoading.has(unitCode)) return;
+    setQuizGenError(null);
+
+    // If we generated one this session, open it directly
+    if (sessionQuizIds[unitCode]) {
+      setActiveHtmlQuiz({ id: sessionQuizIds[unitCode], title: unitName, examCode: unitCode });
+      return;
+    }
+
+    // Otherwise call the generate endpoint
+    setQuizGenLoading((prev) => new Set(prev).add(unitCode));
+    try {
+      const r = await fetch("/api/v4/unit-quizzes/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ specialtySlug: slug, unitCode }),
+      });
+      const json = await r.json();
+      if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
+      const quizId: number = json.quizId;
+      setSessionQuizIds((prev) => ({ ...prev, [unitCode]: quizId }));
+      setActiveHtmlQuiz({ id: quizId, title: unitName, examCode: unitCode });
+    } catch (err: any) {
+      setQuizGenError(err?.message ?? "فشل توليد الاختبار، حاول مجدداً");
+      setTimeout(() => setQuizGenError(null), 4000);
+    } finally {
+      setQuizGenLoading((prev) => {
+        const s = new Set(prev);
+        s.delete(unitCode);
+        return s;
+      });
+    }
+  }
+
+  // ── Stage quiz generation handler ────────────────────────────────────────────
+  async function handleStageQuizClick(levelIndex: number, stageIndex: number, stageName: string) {
+    const key = `${levelIndex}-${stageIndex}`;
+    if (stageQuizGenLoading.has(key)) return;
+    setStageQuizGenError(null);
+
+    if (sessionStageQuizIds[key]) {
+      setActiveHtmlQuiz({ id: sessionStageQuizIds[key], title: stageName, examCode: `stage-${key}` });
+      return;
+    }
+
+    setStageQuizGenLoading((prev) => new Set(prev).add(key));
+    try {
+      const r = await fetch("/api/v4/stage-quizzes/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ specialtySlug: slug, levelIndex, stageIndex }),
+      });
+      const json = await r.json();
+      if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
+      const quizId: number = json.quizId;
+      setSessionStageQuizIds((prev) => ({ ...prev, [key]: quizId }));
+      setActiveHtmlQuiz({ id: quizId, title: stageName, examCode: `stage-${key}` });
+    } catch (err: any) {
+      setStageQuizGenError(err?.message ?? "فشل توليد اختبار المرحلة، حاول مجدداً");
+      setTimeout(() => setStageQuizGenError(null), 4000);
+    } finally {
+      setStageQuizGenLoading((prev) => {
+        const s = new Set(prev);
+        s.delete(key);
+        return s;
+      });
+    }
+  }
+
+  // ── Level quiz generation handler ────────────────────────────────────────────
+  async function handleLevelQuizClick(levelIndex: number, levelName: string) {
+    const key = String(levelIndex);
+    if (levelQuizGenLoading.has(key)) return;
+    setLevelQuizGenError(null);
+
+    if (sessionLevelQuizIds[key]) {
+      setActiveHtmlQuiz({ id: sessionLevelQuizIds[key], title: levelName, examCode: `level-${key}` });
+      return;
+    }
+
+    setLevelQuizGenLoading((prev) => new Set(prev).add(key));
+    try {
+      const r = await fetch("/api/v4/level-quizzes/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ specialtySlug: slug, levelIndex }),
+      });
+      const json = await r.json();
+      if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
+      const quizId: number = json.quizId;
+      setSessionLevelQuizIds((prev) => ({ ...prev, [key]: quizId }));
+      setActiveHtmlQuiz({ id: quizId, title: levelName, examCode: `level-${key}` });
+    } catch (err: any) {
+      setLevelQuizGenError(err?.message ?? "فشل توليد اختبار المستوى، حاول مجدداً");
+      setTimeout(() => setLevelQuizGenError(null), 5000);
+    } finally {
+      setLevelQuizGenLoading((prev) => {
+        const s = new Set(prev);
+        s.delete(key);
+        return s;
+      });
+    }
   }
 
   function handleNodeClick(node: FlatNode, _index: number, _total: number) {
@@ -1808,6 +1955,118 @@ export default function V4Map() {
                 </div>
               );
             }
+            if (item.type === "quiz_action") {
+              const isLoading = quizGenLoading.has(item.unitCode);
+              // Check if this unit already has a quiz from the map data OR session generation
+              const existingQuizId = sessionQuizIds[item.unitCode] ??
+                data?.map.stages.flatMap(s => s.units).find(u => u.code === item.unitCode)?.unitTest?.quizId;
+              return (
+                <div key={`quiz-action-${item.unitCode}`} className="flex flex-col items-center w-full mb-2">
+                  <button
+                    onClick={() => handleUnitQuizClick(item.unitCode, item.unitName)}
+                    disabled={isLoading}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{
+                      background: existingQuizId
+                        ? "linear-gradient(to left, rgba(34,197,94,0.15), rgba(16,185,129,0.1))"
+                        : "linear-gradient(to left, rgba(245,158,11,0.15), rgba(249,115,22,0.1))",
+                      border: `1px solid ${existingQuizId ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.3)"}`,
+                      color: existingQuizId ? "#4ade80" : "#f59e0b",
+                    }}
+                  >
+                    {isLoading ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /><span>جاري توليد الاختبار…</span></>
+                    ) : existingQuizId ? (
+                      <><Zap className="w-4 h-4" /><span>افتح اختبار الوحدة</span></>
+                    ) : (
+                      <><Zap className="w-4 h-4" /><span>اختبر نفسك ⚡</span></>
+                    )}
+                  </button>
+                </div>
+              );
+            }
+            if (item.type === "stage_quiz_action") {
+              const key = `${item.levelIndex}-${item.stageIndex}`;
+              const isLoading = stageQuizGenLoading.has(key);
+              const existingQuizId = sessionStageQuizIds[key];
+              return (
+                <div key={`stage-quiz-action-${key}`} className="flex flex-col items-center w-full my-3">
+                  <div className="w-full max-w-xs">
+                    <button
+                      onClick={() => handleStageQuizClick(item.levelIndex, item.stageIndex, item.stageName)}
+                      disabled={isLoading}
+                      className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                      style={{
+                        background: existingQuizId
+                          ? "linear-gradient(to left, rgba(34,197,94,0.15), rgba(16,185,129,0.1))"
+                          : "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.15))",
+                        border: `1px solid ${existingQuizId ? "rgba(34,197,94,0.35)" : "rgba(139,92,246,0.4)"}`,
+                        color: existingQuizId ? "#4ade80" : "#c4b5fd",
+                      }}
+                    >
+                      {isLoading ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /><span>جاري توليد اختبار المرحلة…</span></>
+                      ) : existingQuizId ? (
+                        <><GraduationCap className="w-4 h-4" /><span>افتح اختبار المرحلة</span></>
+                      ) : (
+                        <><GraduationCap className="w-4 h-4" /><span>اختبار المرحلة الكاملة 📋</span></>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            if (item.type === "level_quiz_action") {
+              const key = String(item.levelIndex);
+              const isLoading = levelQuizGenLoading.has(key);
+              const existingQuizId = sessionLevelQuizIds[key];
+              return (
+                <div key={`level-quiz-action-${key}`} className="flex flex-col items-center w-full my-5">
+                  <div className="w-full max-w-sm px-4">
+                    <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent mb-4" />
+                    <button
+                      onClick={() => handleLevelQuizClick(item.levelIndex, item.levelName)}
+                      disabled={isLoading}
+                      className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                      style={{
+                        background: existingQuizId
+                          ? "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(16,185,129,0.15))"
+                          : "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.15))",
+                        border: `1px solid ${existingQuizId ? "rgba(34,197,94,0.5)" : "rgba(16,185,129,0.45)"}`,
+                        color: existingQuizId ? "#4ade80" : "#34d399",
+                        boxShadow: "0 0 24px rgba(16,185,129,0.08)",
+                      }}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <div className="flex flex-col items-start">
+                            <span>جاري توليد الاختبار الشامل للمستوى…</span>
+                            <span className="text-xs opacity-60 font-normal">٣٠ سؤالاً — قد يستغرق دقيقة</span>
+                          </div>
+                        </>
+                      ) : existingQuizId ? (
+                        <>
+                          <GraduationCap className="w-5 h-5" />
+                          <div className="flex flex-col items-start">
+                            <span>افتح الاختبار الشامل للمستوى</span>
+                            <span className="text-xs opacity-60 font-normal">٣٠ سؤالاً • ١٠٠ نقطة</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <GraduationCap className="w-5 h-5" />
+                          <div className="flex flex-col items-start">
+                            <span>اختبار المستوى الشامل 🏆</span>
+                            <span className="text-xs opacity-60 font-normal">٣٠ سؤالاً • ١٠٠ نقطة • يُولَّد بالذكاء الاصطناعي</span>
+                          </div>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
             const { node, xOff, showConnector } = item;
             return (
               <div key={node.id} className="flex flex-col items-center w-full">
@@ -1939,6 +2198,57 @@ export default function V4Map() {
           onClose={() => setStoryModal(null)}
         />
       )}
+
+      {/* Unit quiz generation error toast */}
+      <AnimatePresence>
+        {quizGenError && (
+          <motion.div
+            key="quiz-gen-err"
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-24 inset-x-0 flex justify-center z-[80] px-4 pointer-events-none"
+          >
+            <div className="bg-red-950/90 border border-red-700/60 text-red-200 rounded-2xl px-4 py-3 text-sm font-medium shadow-xl max-w-sm text-center">
+              ⚠️ {quizGenError}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Stage quiz generation error toast */}
+      <AnimatePresence>
+        {stageQuizGenError && (
+          <motion.div
+            key="stage-quiz-gen-err"
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-36 inset-x-0 flex justify-center z-[80] px-4 pointer-events-none"
+          >
+            <div className="bg-red-950/90 border border-red-700/60 text-red-200 rounded-2xl px-4 py-3 text-sm font-medium shadow-xl max-w-sm text-center">
+              ⚠️ {stageQuizGenError}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Level quiz generation error toast */}
+      <AnimatePresence>
+        {levelQuizGenError && (
+          <motion.div
+            key="level-quiz-gen-err"
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-48 inset-x-0 flex justify-center z-[80] px-4 pointer-events-none"
+          >
+            <div className="bg-red-950/90 border border-red-700/60 text-red-200 rounded-2xl px-4 py-3 text-sm font-medium shadow-xl max-w-sm text-center">
+              ⚠️ {levelQuizGenError}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

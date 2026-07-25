@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// v4 Level Quizzes — admin CRUD + student HTML view
+// v4 Level Quizzes — admin CRUD + student HTML view + AI auto-generate
 //
 //   GET    /api/v4/admin/level-quizzes          — list all (admin)
 //   POST   /api/v4/admin/level-quizzes          — create / upsert (admin)
@@ -7,6 +7,7 @@
 //   DELETE /api/v4/admin/level-quizzes/:id      — delete (admin)
 //   GET    /api/v4/level-quizzes/:id/view       — serve raw HTML (auth)
 //   GET    /api/v4/level-quizzes                — list for a specialty (auth)
+//   POST   /api/v4/level-quizzes/generate       — AI auto-generate & cache (auth)
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { eq } from "drizzle-orm";
@@ -15,6 +16,11 @@ import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
 import { validateQuizHtml } from "../lib/validate-quiz-html";
+import {
+  extractLevelContent,
+  generateLevelQuizHtml,
+  GenerateGeminiError,
+} from "../lib/quiz-html-gen";
 
 const router: IRouter = Router();
 
@@ -177,6 +183,84 @@ router.get("/v4/level-quizzes", requireAuth, async (req: Request, res: Response)
   } catch (err: any) {
     logger.error({ err: err?.message }, "level-quizzes: student list failed");
     res.status(500).json({ error: err?.message ?? "db error" });
+  }
+});
+
+// ── AI auto-generate ──────────────────────────────────────────────────────────
+// Idempotent: returns cached quiz if one already exists for this level.
+// 30 questions (10 MCQ×5 + 10 T/F×3 + 10 Fill×2 = 100 pts), easy difficulty.
+
+router.post("/v4/level-quizzes/generate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { specialtySlug, levelIndex } = req.body as {
+    specialtySlug?: string;
+    levelIndex?: number;
+  };
+  if (!specialtySlug || levelIndex == null) {
+    res.status(400).json({ error: "specialtySlug و levelIndex مطلوبان" });
+    return;
+  }
+  const li = Number(levelIndex);
+
+  // 1. Return cached quiz immediately
+  try {
+    const cached = await db.execute(
+      sql`SELECT id FROM v4_level_quizzes
+          WHERE specialty_slug = ${specialtySlug} AND level_index = ${li}`
+    );
+    if (cached.rows.length > 0) {
+      res.json({ quizId: Number(cached.rows[0].id), cached: true });
+      return;
+    }
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "level-quiz generate: cache check failed");
+    res.status(500).json({ error: "خطأ في قاعدة البيانات" });
+    return;
+  }
+
+  // 2. Extract level content
+  let levelContent: Awaited<ReturnType<typeof extractLevelContent>>;
+  try {
+    levelContent = await extractLevelContent(specialtySlug, li);
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "level-quiz generate: content extraction failed");
+    res.status(500).json({ error: "خطأ في استخراج محتوى المستوى" });
+    return;
+  }
+  if (!levelContent) {
+    res.status(404).json({ error: "المستوى غير موجود أو لا يوجد منهج منشور لهذا التخصص" });
+    return;
+  }
+
+  // 3. Generate via AI (validates internally; throws on failure)
+  let htmlContent: string;
+  try {
+    htmlContent = await generateLevelQuizHtml(levelContent);
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "level-quiz generate: AI failed");
+    if (err instanceof GenerateGeminiError && err.creditsExhausted) {
+      res.status(503).json({ error: "خدمة الذكاء الاصطناعي متوقفة مؤقتاً، يرجى المحاولة لاحقاً" });
+    } else {
+      res.status(500).json({ error: "فشل توليد الاختبار، يرجى المحاولة مرة أخرى" });
+    }
+    return;
+  }
+
+  // 4. Save (upsert — race-safe)
+  try {
+    const title = `${levelContent.name} — اختبار المستوى الشامل`;
+    const result = await db.execute(
+      sql`INSERT INTO v4_level_quizzes (specialty_slug, level_index, title, html_content)
+          VALUES (${specialtySlug}, ${li}, ${title}, ${htmlContent})
+          ON CONFLICT (specialty_slug, level_index)
+          DO UPDATE SET html_content = EXCLUDED.html_content,
+                        title        = EXCLUDED.title,
+                        updated_at   = NOW()
+          RETURNING id`
+    );
+    res.json({ quizId: Number(result.rows[0].id), cached: false });
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "level-quiz generate: save failed");
+    res.status(500).json({ error: "خطأ في حفظ الاختبار" });
   }
 });
 
