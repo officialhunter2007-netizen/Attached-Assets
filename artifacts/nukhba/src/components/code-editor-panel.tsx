@@ -1753,7 +1753,12 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/solo-run`);
       soloWsRef.current = ws;
 
+      // Track whether the WS upgrade succeeded. If onerror fires before onopen,
+      // the connection was rejected (e.g. 401 session expired) — fall back to HTTP.
+      let wsOpened = false;
+
       ws.onopen = () => {
+        wsOpened = true;
         const allFiles = files.map(f => ({ path: f.name, content: f.content }));
         ws.send(JSON.stringify({
           type: "run",
@@ -1789,8 +1794,46 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         }
       };
 
-      ws.onerror = () => {
+      ws.onerror = async () => {
         setProcessRunning(false);
+        ws.close();
+
+        if (!wsOpened) {
+          // WebSocket was rejected before connecting (e.g. session expired).
+          // Fall back to HTTP batch execution so code still runs.
+          setInteractiveMode(false);
+          liveOutputRef.current = "";
+          setLiveOutput("");
+          try {
+            const siblings = (files as typeof files)
+              .filter(f => f.id !== file.id && !f.name.endsWith("/.gitkeep") && (f.language === file.language || DATA_LANGS.has(f.language)))
+              .map(f => ({ file: f.name, code: f.content }));
+            const res = await fetch("/api/ai/run-code", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                code: file.content,
+                language: file.language,
+                ...(stdin.trim() ? { stdin } : {}),
+                ...(siblings.length > 0 ? { codes: siblings } : {}),
+              }),
+            });
+            const data = await res.json();
+            const hasError = data.exitCode !== 0 || (!data.output && data.error);
+            setOutputType(hasError ? "error" : "success");
+            const combined = (data.output || "") + (data.error ? `\n${data.error}` : "");
+            setOutput(data.output ? combined : (data.error || "لا يوجد إخراج"));
+          } catch {
+            setOutputType("error");
+            setOutput("تعذّر الاتصال بالخادم — تأكد من تسجيل الدخول وحاول مجدداً");
+          } finally {
+            setRunning(false);
+          }
+          return;
+        }
+
+        // Connection dropped mid-execution — show error in terminal
         setRunning(false);
         const next = liveOutputRef.current + "\n❌ انقطع الاتصال بالخادم";
         liveOutputRef.current = next;
