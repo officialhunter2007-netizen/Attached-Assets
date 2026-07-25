@@ -34,7 +34,7 @@ import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
 import { requireSameOriginCsrf } from "../lib/csrf";
 import { sendFcmToTokens } from "../lib/fcm";
 import { sendExpoToAdmins, sendExpoToStudent } from "./expo_push_tokens";
-import { sendVapidToAdmins } from "./push_notifications";
+import { sendVapidToAdmins, sendVapidToStudent } from "./push_notifications";
 import {
   computeGemsForPrice,
   computePricingBreakdown,
@@ -1419,6 +1419,24 @@ router.post("/admin/subscription-requests/:id/approve", requireSameOriginCsrf, a
     );
 
     res.json(card);
+
+    // ── إشعار فوري للطالب عند قبول الاشتراك (best-effort — لا يؤثر على الاستجابة) ──
+    {
+      const sName  = subscription.subjectName ?? requestSubjectId;
+      const pLabel = request.planType ?? "قياسية";
+      const nTitle = "🎉 تمت الموافقة على اشتراكك";
+      const nBody  = `تم تفعيل باقة ${pLabel} لمادة "${sName}". ابدأ رحلتك التعليمية الآن!`;
+      sendExpoToStudent(request.userId, nTitle, nBody, "/subscription").catch(() => {});
+      sendVapidToStudent(request.userId, nTitle, nBody, "/subscription").catch(() => {});
+      db.execute(sql`
+        INSERT INTO notifications (user_id, type, title, body, data)
+        VALUES (
+          ${request.userId}, 'subscription_approved', ${nTitle}, ${nBody},
+          ${JSON.stringify({ subjectId: requestSubjectId, subjectName: sName, planType: request.planType })}::jsonb
+        )
+      `).catch(() => {});
+    }
+
   } catch (e: any) {
     if (e?.message === "DISCOUNT_EXHAUSTED") {
       res.status(409).json({ error: "كود الخصم نَفِد قبل اعتماد هذا الطلب — أعِد المراجعة بعد إزالة الكود أو رفع الحد الأقصى" });
@@ -1479,11 +1497,29 @@ router.post("/admin/subscription-requests/:id/reject", requireSameOriginCsrf, as
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(rawId, 10);
 
-  await db.update(subscriptionRequestsTable).set({
-    status: "rejected",
-  }).where(eq(subscriptionRequestsTable.id, id));
+  const [rejected] = await db
+    .update(subscriptionRequestsTable)
+    .set({ status: "rejected" })
+    .where(eq(subscriptionRequestsTable.id, id))
+    .returning();
 
   res.json({ success: true });
+
+  // ── إشعار للطالب عند الرفض (best-effort) ───────────────────────────────────
+  if (rejected) {
+    const sName  = rejected.subjectName ?? rejected.subjectId ?? "";
+    const nTitle = "⚠️ طلب اشتراكك لم يُقبل";
+    const nBody  = `طلب اشتراكك في "${sName}" لم يُقبل. تواصل مع الدعم أو أعد إرسال الطلب.`;
+    sendExpoToStudent(rejected.userId, nTitle, nBody, "/subscription").catch(() => {});
+    sendVapidToStudent(rejected.userId, nTitle, nBody, "/subscription").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (
+        ${rejected.userId}, 'subscription_rejected', ${nTitle}, ${nBody},
+        ${JSON.stringify({ subjectId: rejected.subjectId, subjectName: sName, planType: rejected.planType })}::jsonb
+      )
+    `).catch(() => {});
+  }
 });
 
 // ── Admin: mark incomplete ─────────────────────────────────────────────────────
@@ -1509,12 +1545,30 @@ router.post("/admin/subscription-requests/:id/incomplete", requireSameOriginCsrf
     return;
   }
 
-  await db.update(subscriptionRequestsTable).set({
-    status: "incomplete",
-    adminNote: parsed.data.adminNote,
-  }).where(eq(subscriptionRequestsTable.id, id));
+  const [markedIncomplete] = await db
+    .update(subscriptionRequestsTable)
+    .set({ status: "incomplete", adminNote: parsed.data.adminNote })
+    .where(eq(subscriptionRequestsTable.id, id))
+    .returning();
 
   res.json({ success: true });
+
+  // ── إشعار للطالب بأن طلبه يحتاج تعديل (best-effort) ──────────────────────
+  if (markedIncomplete) {
+    const sName   = markedIncomplete.subjectName ?? markedIncomplete.subjectId ?? "";
+    const noteTxt = parsed.data.adminNote ? ` — ${parsed.data.adminNote}` : "";
+    const nTitle  = "📝 طلب اشتراكك يحتاج معلومات إضافية";
+    const nBody   = `طلب اشتراكك في "${sName}" يحتاج تعديل${noteTxt}. يرجى مراجعة الطلب وإعادة الإرسال.`;
+    sendExpoToStudent(markedIncomplete.userId, nTitle, nBody, "/subscription").catch(() => {});
+    sendVapidToStudent(markedIncomplete.userId, nTitle, nBody, "/subscription").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (
+        ${markedIncomplete.userId}, 'subscription_incomplete', ${nTitle}, ${nBody},
+        ${JSON.stringify({ subjectId: markedIncomplete.subjectId, subjectName: sName, adminNote: parsed.data.adminNote })}::jsonb
+      )
+    `).catch(() => {});
+  }
 });
 
 // ── Admin: list all activation cards ──────────────────────────────────────────
@@ -3176,6 +3230,23 @@ router.post("/admin/users/:id/grant-gems", requireSameOriginCsrf, async (req, re
     gemsGranted: sub.gemsBalance,
     expiresAt: sub.expiresAt,
   });
+
+  // ── إشعار للطالب عند المنح المباشر من المشرف (best-effort) ─────────────────
+  {
+    const sName  = sub.subjectName ?? subjectId;
+    const pLabel = planType ?? "قياسية";
+    const nTitle = "🎉 تم تفعيل اشتراكك";
+    const nBody  = `فعّل المشرف باقة ${pLabel} لمادة "${sName}". ابدأ تعلمك الآن!`;
+    sendExpoToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+    sendVapidToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (
+        ${targetId}, 'subscription_approved', ${nTitle}, ${nBody},
+        ${JSON.stringify({ subjectId: sub.subjectId, subjectName: sName, planType })}::jsonb
+      )
+    `).catch(() => {});
+  }
 });
 
 // ── Admin: reset user password ──────────────────────────────────────────────
