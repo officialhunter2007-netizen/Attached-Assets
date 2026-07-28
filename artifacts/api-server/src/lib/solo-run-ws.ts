@@ -8,6 +8,23 @@ import * as os from "os";
 import { verifySession } from "./session";
 
 const INTERACTIVE_LANGS = new Set(["python", "javascript", "typescript", "bash", "c", "cpp", "java"]);
+
+// ── Resource limits ──────────────────────────────────────────────────────────
+// Applied to every spawned process via bash ulimit before exec.
+//   -t 30    → 30 CPU seconds (kills infinite loops)
+//   -f 10240 → max 10 MB file write (prevents disk fill)
+// Intentionally no -v (virtual memory) or -u (max-procs):
+//   -v breaks Python/Node startup (shared libs need large virtual space)
+//   -u is per-user shared with ALL processes, breaks gcc forks under load
+// Wall-clock protection comes from WS_EXEC_TIMEOUT_MS (30s timeout below).
+const ULIMIT_PREFIX = "ulimit -t 30 -f 10240 2>/dev/null";
+
+// ── Concurrent execution cap ──────────────────────────────────────────────────
+let activeWsExecutions = 0;
+const MAX_WS_CONCURRENT = 80;   // hard ceiling across all students
+
+// ── Per-process wall-clock timeout ───────────────────────────────────────────
+const WS_EXEC_TIMEOUT_MS = 30_000;  // 30 seconds
 const SHARED_JAVA_DIR = "/home/runner/workspace/.javalib";
 
 /**
@@ -212,42 +229,53 @@ export function initSoloRunWss(server: Server) {
           const javaCP = `${tmpDir}:${SHARED_JAVA_DIR}/*`;
           const safeCP = JSON.stringify(javaCP);
 
+          // ── Concurrent cap ──────────────────────────────────────────────
+          if (activeWsExecutions >= MAX_WS_CONCURRENT) {
+            send({ type: "output", data: "⏳ الخوادم مشغولة الآن — حاول مرة أخرى بعد لحظة\n" });
+            send({ type: "exit", exitCode: 1 });
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+            return;
+          }
+          activeWsExecutions++;
+
           switch (language) {
+            // For interpreted langs: wrap in bash with ulimits
             case "python":
-              cmd = "python3"; args = ["-u", entryAbs]; break;
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; exec python3 -u ${JSON.stringify(entryAbs)}`]; break;
             case "javascript":
             case "typescript":
-              cmd = "node"; args = [entryAbs]; break;
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; exec node ${JSON.stringify(entryAbs)}`]; break;
             case "bash":
-              cmd = "bash"; args = [entryAbs]; break;
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; exec bash ${JSON.stringify(entryAbs)}`]; break;
             case "c": {
-              // gnu11 + POSIX + auto-detected extra libs
               const extraStr = extraCFlags ? ` ${extraCFlags}` : "";
               cmd = "bash"; args = ["-c",
-                `cd ${safeDir} && gcc *.c -o _prog -std=gnu11 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
+                `${ULIMIT_PREFIX}; cd ${safeDir} && gcc *.c -o _prog -std=gnu11 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
               break;
             }
             case "cpp": {
-              // gnu++17 + POSIX + auto-detected extra libs
               const extraStr = extraCFlags ? ` ${extraCFlags}` : "";
               cmd = "bash"; args = ["-c",
-                `cd ${safeDir} && g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -std=gnu++17 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
+                `${ULIMIT_PREFIX}; cd ${safeDir} && g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -std=gnu++17 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
               break;
             }
             case "java": {
-              // Detect main class from entry file content
               const classMatch = entryContent.match(/public\s+class\s+(\w+)/);
               const mainClass = classMatch?.[1] ?? path.basename(entryFile, ".java");
               cmd = "bash"; args = ["-c",
-                `cd ${safeDir} && javac -cp ${safeCP} *.java 2>&1 && java -cp ${safeCP} ${mainClass}`];
+                `${ULIMIT_PREFIX}; cd ${safeDir} && javac -cp ${safeCP} *.java 2>&1 && java -cp ${safeCP} ${mainClass}`];
               break;
             }
             default:
+              activeWsExecutions--;
               try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
               return;
           }
 
-          // Set language-specific env vars so installed packages are visible
+          // Language-specific env vars so installed packages are visible
           const spawnEnv: NodeJS.ProcessEnv =
             language === "javascript" || language === "typescript"
               ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
@@ -258,10 +286,21 @@ export function initSoloRunWss(server: Server) {
 
           activeProcesses.set(processKey, { proc, tmpDir });
 
+          // ── Wall-clock timeout ───────────────────────────────────────────
+          const execTimer = setTimeout(() => {
+            if (activeProcesses.get(processKey)?.proc === proc) {
+              killProcess(processKey);
+              send({ type: "output", data: `\n⏱ انتهت مدة التنفيذ (${WS_EXEC_TIMEOUT_MS / 1000} ثانية)\n` });
+              send({ type: "exit", exitCode: 124 });
+            }
+          }, WS_EXEC_TIMEOUT_MS);
+
           proc.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
           proc.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
 
           proc.on("close", (code, signal) => {
+            clearTimeout(execTimer);
+            activeWsExecutions = Math.max(0, activeWsExecutions - 1);
             if (activeProcesses.get(processKey)?.proc !== proc) return;
             activeProcesses.delete(processKey);
             setImmediate(() => {
@@ -271,6 +310,8 @@ export function initSoloRunWss(server: Server) {
           });
 
           proc.on("error", (err) => {
+            clearTimeout(execTimer);
+            activeWsExecutions = Math.max(0, activeWsExecutions - 1);
             send({ type: "output", data: `\n❌ فشل التشغيل: ${err.message}\n` });
             killProcess(processKey);
             send({ type: "exit", exitCode: 1 });

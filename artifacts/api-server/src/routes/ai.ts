@@ -7854,6 +7854,11 @@ ${recentTerminal || "(لا مخرجات بعد)"}
 // POST /api/ai/run-code — local execution
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Concurrent execution cap ──────────────────────────────────────────────────
+// Prevents thousands of simultaneous subprocesses from overwhelming the server.
+let activeHttpExecutions = 0;
+const MAX_HTTP_CONCURRENT = 40;   // max simultaneous HTTP code-runs
+
 // Shared directory for Java JARs downloaded via @maven comments
 const SHARED_JAVA_DIR = "/home/runner/workspace/.javalib";
 
@@ -7938,9 +7943,25 @@ async function runCodeLocally(
       }
     }
 
+    // Per-child resource limits applied via bash before exec:
+    //   -t 15      → 15 CPU seconds (kills infinite loops)
+    //   -f 10240   → max 10 MB written to any single file (prevents disk fill)
+    // We intentionally skip -v (virtual memory) and -u (max-procs) because:
+    //   -v 512 MB breaks Python/Node startup (shared libs consume virtual space)
+    //   -u N   is a per-user limit shared across ALL processes, so it breaks
+    //          gcc (which forks cc1+as+ld) when many students run in parallel.
+    const ULIMIT = "ulimit -t 15 -f 10240 2>/dev/null";
+
     const execAsync = (cmd: string, args: string[], opts?: any) =>
       new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
-        const child = spawn(cmd, args, { cwd: dir, env: { ...process.env, HOME: dir }, ...opts });
+        // Route every execution through bash so ulimits apply before exec
+        const safeArgs = [cmd, ...args].map(a => a.replace(/'/g, "'\\''"));
+        const bashCmd = `${ULIMIT}; exec '${safeArgs.join("' '")}'`;
+        const child = spawn("bash", ["-c", bashCmd], {
+          cwd: dir,
+          env: { ...process.env, HOME: dir },
+          ...opts,
+        });
         let stdout = "";
         let stderr = "";
         const cap = (s: string) => s.slice(0, 8000);
@@ -7951,7 +7972,6 @@ async function runCodeLocally(
           clearTimeout(timer);
           resolve({ stdout: cap(stdout), stderr: cap(stderr), code: code ?? 1 });
         });
-        // Pipe stdin if provided
         if (options?.stdin) {
           child.stdin?.write(options.stdin);
           child.stdin?.end();
@@ -8158,6 +8178,15 @@ router.post("/ai/run-code", async (req, res): Promise<any> => {
     }
   }
 
+  // ── Concurrent cap ─────────────────────────────────────────────────────────
+  if (activeHttpExecutions >= MAX_HTTP_CONCURRENT) {
+    return res.status(503).json({
+      error: "الخوادم مشغولة حالياً — حاول مرة أخرى بعد لحظة",
+      output: "",
+      exitCode: 1,
+    });
+  }
+  activeHttpExecutions++;
   // Local execution for: javascript, typescript, python, bash, c, cpp, java
   try {
     const { output, exitCode } = await runCodeLocally(language, code, 15_000, { stdin, codes });
@@ -8165,6 +8194,59 @@ router.post("/ai/run-code", async (req, res): Promise<any> => {
   } catch (err: any) {
     console.error("[run-code] local error:", err?.message || err);
     return res.status(500).json({ error: "تعذّر تشغيل الكود — " + (err?.message || "خطأ غير معروف") });
+  } finally {
+    activeHttpExecutions--;
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/ai/explain-error  —  "شرح الخطأ" inline in code editor
+// Sends the error message + code to the AI and returns a short Arabic explanation.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/ai/explain-error", async (req, res): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "غير مصرح" });
+
+  const { code = "", language = "", error: errorText = "" } = req.body ?? {};
+  if (!errorText || !language) return res.status(400).json({ error: "بيانات ناقصة" });
+
+  const codeSnippet = String(code).slice(0, 3000);
+  const errSnippet  = String(errorText).slice(0, 1500);
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: "google/gemini-2.5-flash-lite",
+      max_tokens: 600,
+      messages: [
+        {
+          role: "system",
+          content:
+            "أنت معلم برمجة يمني ودود. عندما يأتيك كود وخطأ، اشرح الخطأ بالعربية بوضوح تام لطالب مبتدئ في 3-5 جمل فقط. ثم اعطِهِ الحل المحدد مع مثال كود مُصحَّح إن لزم. لا تزيد عن 200 كلمة.",
+        },
+        {
+          role: "user",
+          content: `اللغة: ${language}\n\nالكود:\n\`\`\`${language}\n${codeSnippet}\n\`\`\`\n\nرسالة الخطأ:\n${errSnippet}`,
+        },
+      ],
+    });
+    const explanation = resp.choices?.[0]?.message?.content ?? "تعذّر الحصول على شرح.";
+    return res.json({ explanation });
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    // Key limit / quota exhausted — return a graceful Arabic message
+    // instead of a raw 5xx so the frontend can display it helpfully.
+    if (msg.includes("Key limit") || msg.includes("quota") || msg.includes("403") || msg.includes("429")) {
+      return res.json({
+        explanation:
+          "⚠️ خدمة شرح الأخطاء التلقائي متوقفة مؤقتاً.\n\n" +
+          "يمكنك الحصول على شرح مفصّل من المعلم الذكي مباشرةً:\n" +
+          "• انسخ رسالة الخطأ\n" +
+          "• افتح محادثة المعلم في الدرس\n" +
+          "• اسأل: «ما معنى هذا الخطأ وكيف أصلحه؟»",
+      });
+    }
+    console.error("[explain-error]", msg);
+    return res.status(500).json({ error: "تعذّر الحصول على شرح." });
   }
 });
 

@@ -1150,6 +1150,62 @@ function EditorStatusBar({
   );
 }
 
+// ── Inline "شرح الخطأ" component ─────────────────────────────────────────────
+function ExplainErrorButton({ code, language, error }: { code: string; language: string; error: string }) {
+  const [loading, setLoading] = useState(false);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const handleClick = async () => {
+    if (open && explanation) { setOpen(false); return; }
+    setOpen(true);
+    if (explanation) return; // already fetched
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai/explain-error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code: code.slice(0, 3000), language, error: error.slice(0, 1500) }),
+      });
+      const data = await res.json();
+      setExplanation(data.explanation ?? data.error ?? "تعذّر الحصول على شرح.");
+    } catch {
+      setExplanation("تعذّر الاتصال بالذكاء الاصطناعي.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="contents">
+      <button
+        onClick={handleClick}
+        disabled={loading}
+        className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-all shrink-0 ${open ? "bg-[#F59E0B]/20 text-[#F59E0B] ring-1 ring-[#F59E0B]/30" : "bg-[#F59E0B]/10 text-[#F59E0B] hover:bg-[#F59E0B]/20"}`}
+        title="اسأل الذكاء الاصطناعي عن هذا الخطأ"
+      >
+        {loading
+          ? <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          : <Sparkles className="w-3 h-3" />}
+        <span className="hidden sm:inline">{loading ? "جاري…" : "شرح الخطأ"}</span>
+      </button>
+      {open && explanation && (
+        <div className="absolute left-2 right-2 top-full mt-1 z-50 bg-[#0d1117] border border-[#F59E0B]/30 rounded-lg p-3 shadow-2xl text-[11px] text-white/85 leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto"
+          dir="rtl">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[#F59E0B] font-bold text-[10px] flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> شرح الخطأ
+            </span>
+            <button onClick={() => setOpen(false)} className="text-[#6e6a86] hover:text-white"><X className="w-3 h-3" /></button>
+          </div>
+          {explanation}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher }: Props) {
   const isMobile = useIsMobile();
   const starter = extractStarterCode(sectionContent);
@@ -3163,6 +3219,13 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                     <Circle className="w-2 h-2 fill-current" />
                     <span className="hidden sm:inline">{outputType === "success" ? "exit 0" : "exit 1"}</span>
                   </div>
+                )}
+                {output !== null && outputType === "error" && (
+                  <ExplainErrorButton
+                    code={activeFile?.content ?? ""}
+                    language={activeFile?.language ?? ""}
+                    error={output}
+                  />
                 )}
                 {output !== null && (
                   <span className="text-[10px] text-[#6e6a86] font-mono shrink-0">
