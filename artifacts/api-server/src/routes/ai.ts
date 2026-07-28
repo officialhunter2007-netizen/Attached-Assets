@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomBytes } from "crypto";
 import { spawn } from "child_process";
-import { mkdtemp, writeFile, rm } from "fs/promises";
+import { mkdtemp, writeFile, rm, mkdir, access } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
@@ -7851,13 +7851,76 @@ ${recentTerminal || "(لا مخرجات بعد)"}
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/ai/run-code
-// Execute student code locally inside the Docker container.
-// Runtimes available (installed via Dockerfile):
-//   JS/TS → node 22  |  Python → python3  |  C/C++ → gcc/g++
-//   Java → openjdk21  |  Bash → bash
-// Kotlin and Dart are not currently supported (not in the container).
+// POST /api/ai/run-code — local execution
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Shared directory for Java JARs downloaded via @maven comments
+const SHARED_JAVA_DIR = "/home/runner/workspace/.javalib";
+
+/**
+ * Parse `// @maven group:artifact:version` comments from Java source and
+ * download the corresponding JARs from Maven Central into SHARED_JAVA_DIR.
+ * Returns list of jar file paths that were downloaded (or already cached).
+ */
+async function ensureMavenJars(code: string): Promise<string[]> {
+  const coords = [...code.matchAll(/\/\/\s*@maven\s+([^\s]+)/g)].map(m => m[1]);
+  if (!coords.length) return [];
+
+  try { await mkdir(SHARED_JAVA_DIR, { recursive: true }); } catch {}
+
+  const jars: string[] = [];
+  for (const coord of coords) {
+    const parts = coord.split(":");
+    if (parts.length < 3) continue;
+    const [group, artifact, version] = parts;
+    const jarName = `${artifact}-${version}.jar`;
+    const jarPath = join(SHARED_JAVA_DIR, jarName);
+    try {
+      await access(jarPath);          // already cached
+      jars.push(jarPath);
+      continue;
+    } catch {}
+    // Download from Maven Central
+    const groupPath = group.replace(/\./g, "/");
+    const url = `https://repo1.maven.org/maven2/${groupPath}/${artifact}/${version}/${jarName}`;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      if (!resp.ok) continue;
+      const buf = await resp.arrayBuffer();
+      await writeFile(jarPath, Buffer.from(buf));
+      jars.push(jarPath);
+    } catch { /* network issue — skip */ }
+  }
+  return jars;
+}
+
+/**
+ * Auto-detect C/C++ #include statements and return the linker flags
+ * needed for common system libraries that are available in the Nix store.
+ * Base flags (-lm, -pthread, -D_DEFAULT_SOURCE) are added by the caller.
+ */
+function detectCLinkerFlags(code: string): string[] {
+  const flags = new Set<string>();
+  const includes = [...code.matchAll(/#\s*include\s*[<"]([^>"]+)[>"]/g)]
+    .map(m => m[1].toLowerCase().split("/")[0]);
+
+  for (const top of includes) {
+    if (top === "zlib.h")                     flags.add("-lz");
+    if (top === "png.h")                      flags.add("-lpng");
+    if (top === "bzlib.h")                    flags.add("-lbz2");
+    if (top === "gmp.h")                      flags.add("-lgmp");
+    if (top === "gmpxx.h")                    { flags.add("-lgmp"); flags.add("-lgmpxx"); }
+    if (top === "sqlite3.h")                  flags.add("-lsqlite3");
+    if (top === "curl")                       flags.add("-lcurl");
+    if (top === "openssl")                    { flags.add("-lssl"); flags.add("-lcrypto"); }
+    if (top === "ncurses.h" || top === "curses.h") flags.add("-lncurses");
+    if (top === "readline")                   flags.add("-lreadline");
+    if (top === "ft2build.h" || top === "freetype2") flags.add("-lfreetype");
+    if (top === "uuid" || top === "uuid.h")   flags.add("-luuid");
+  }
+  return Array.from(flags);
+}
+
 async function runCodeLocally(
   language: string,
   code: string,
@@ -7974,12 +8037,13 @@ async function runCodeLocally(
 
     } else if (language === "c") {
       await writeFile(join(dir, "main.c"), code);
-      // gnu11  = C11 + GNU + POSIX extensions (enables usleep, pthread_*, nanosleep…)
-      // -D_DEFAULT_SOURCE exposes all BSD/POSIX symbols explicitly
-      // -pthread links libpthread AND sets compile-time threading defines
+      // gnu11 = C11 + GNU + POSIX (usleep, pthread_*, nanosleep, mmap…)
+      // Auto-detect extra linker flags from #include statements
+      const extraFlags = detectCLinkerFlags(code);
       const compile = await execAsync("gcc", [
         "-o", "main", "main.c",
         "-std=gnu11", "-D_DEFAULT_SOURCE", "-lm", "-pthread",
+        ...extraFlags,
       ]);
       if (compile.code !== 0) {
         return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
@@ -7990,10 +8054,12 @@ async function runCodeLocally(
 
     } else if (language === "cpp") {
       await writeFile(join(dir, "main.cpp"), code);
-      // gnu++17 = C++17 + GNU + POSIX extensions; -pthread for threading
+      // gnu++17 = C++17 + GNU + POSIX; auto-detect extra linker flags
+      const extraFlags = detectCLinkerFlags(code);
       const compile = await execAsync("g++", [
         "-o", "main", "main.cpp",
         "-std=gnu++17", "-D_DEFAULT_SOURCE", "-lm", "-pthread",
+        ...extraFlags,
       ]);
       if (compile.code !== 0) {
         return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
@@ -8006,11 +8072,20 @@ async function runCodeLocally(
       const classMatch = code.match(/public\s+class\s+(\w+)/);
       const className = classMatch?.[1] ?? "Main";
       await writeFile(join(dir, `${className}.java`), code);
-      const compile = await execAsync("javac", [`${className}.java`], { timeout: 20_000 });
+      // Download any @maven JARs declared in comments
+      const jars = await ensureMavenJars(code);
+      try { await mkdir(SHARED_JAVA_DIR, { recursive: true }); } catch {}
+      const cpParts = [dir, `${SHARED_JAVA_DIR}/*`];
+      const cp = cpParts.join(":");
+      const compileArgs = ["-cp", cp, `${className}.java`];
+      const compile = await execAsync("javac", compileArgs);
       if (compile.code !== 0) {
         return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
       }
-      const r = await execAsync("java", ["-cp", dir, className], { timeout: 15_000 });
+      if (jars.length) {
+        console.info(`[java] using ${jars.length} Maven JARs`);
+      }
+      const r = await execAsync("java", ["-cp", cp, className]);
       output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
       exitCode = r.code;
 

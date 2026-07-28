@@ -3170,11 +3170,18 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                   </span>
                 )}
                 <div className="flex-1" />
-                {(activeFile?.language === "python" || activeFile?.language === "javascript") && (
+                {(["python","javascript","typescript","java","c","cpp"].includes(activeFile?.language ?? "")) && (
                   <button
                     onClick={() => setShowInstallInput(v => !v)}
                     className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-md transition-all shrink-0 ${showInstallInput ? "bg-[#10B981]/20 text-[#10B981] ring-1 ring-[#10B981]/40" : "bg-[#10B981]/10 text-[#10B981] hover:bg-[#10B981]/20"}`}
-                    title={activeFile?.language === "javascript" ? "تنزيل حزمة npm" : "تنزيل مكتبة Python"}
+                    title={{
+                      javascript: "تنزيل حزمة npm",
+                      typescript: "تنزيل حزمة npm",
+                      python: "تنزيل مكتبة Python",
+                      java: "تنزيل JAR من Maven Central",
+                      c: "مكتبات C المتاحة",
+                      cpp: "مكتبات C++ المتاحة",
+                    }[activeFile?.language ?? "python"] ?? "مكتبات"}
                     disabled={installing}
                   >
                     {installing ? (
@@ -3182,7 +3189,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                     ) : (
                       <Package className="w-3.5 h-3.5" />
                     )}
-                    <span>{installing ? "جاري التنزيل..." : "تنزيل مكتبة"}</span>
+                    <span>{installing ? "جاري التنزيل..." : (["c","cpp"].includes(activeFile?.language ?? "") ? "مكتبات النظام" : "تنزيل مكتبة")}</span>
                   </button>
                 )}
                 <button
@@ -3202,31 +3209,46 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {showInstallInput && (activeFile?.language === "python" || activeFile?.language === "javascript") && (
+              {showInstallInput && (["python","javascript","typescript","java","c","cpp"].includes(activeFile?.language ?? "")) && (
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-[#060910]">
                   <Package className="w-3.5 h-3.5 text-[#10B981] shrink-0" />
-                  <input
-                    autoFocus
-                    dir="ltr"
-                    value={installInput}
-                    onChange={e => setInstallInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") handleInstall(); if (e.key === "Escape") setShowInstallInput(false); }}
-                    placeholder={activeFile?.language === "javascript" ? "lodash axios moment..." : "pandas numpy matplotlib..."}
-                    disabled={installing}
-                    className="flex-1 bg-transparent text-white/80 text-xs font-mono outline-none placeholder-white/20 min-w-0"
-                  />
-                  {installedPkgs.length > 0 && (
-                    <span className="text-[10px] text-[#10B981]/60 font-mono shrink-0 hidden sm:block">
-                      {installedPkgs.slice(-3).join(", ")}
+                  {["c","cpp"].includes(activeFile?.language ?? "") ? (
+                    /* C/C++: no install needed — show info instead */
+                    <span className="flex-1 text-[10px] text-[#10B981]/80 font-mono leading-relaxed">
+                      أضف <code className="text-white/70">#include &lt;zlib.h&gt;</code> أو <code className="text-white/70">#include &lt;png.h&gt;</code> أو <code className="text-white/70">#include &lt;gmp.h&gt;</code> مباشرةً — تُرتبط تلقائياً.&nbsp;
+                      <button onClick={handleInstall} className="text-[#10B981] underline underline-offset-2">عرض الكامل</button>
                     </span>
+                  ) : (
+                    <>
+                      <input
+                        autoFocus
+                        dir="ltr"
+                        value={installInput}
+                        onChange={e => setInstallInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleInstall(); if (e.key === "Escape") setShowInstallInput(false); }}
+                        placeholder={{
+                          javascript: "lodash axios moment...",
+                          typescript: "lodash@types/lodash zod...",
+                          python: "pandas numpy matplotlib...",
+                          java: "com.google.code.gson:gson:2.10.1",
+                        }[activeFile?.language ?? "python"] ?? "اسم المكتبة..."}
+                        disabled={installing}
+                        className="flex-1 bg-transparent text-white/80 text-xs font-mono outline-none placeholder-white/20 min-w-0"
+                      />
+                      {installedPkgs.length > 0 && (
+                        <span className="text-[10px] text-[#10B981]/60 font-mono shrink-0 hidden sm:block">
+                          {installedPkgs.slice(-3).join(", ")}
+                        </span>
+                      )}
+                      <button
+                        onClick={handleInstall}
+                        disabled={installing || !installInput.trim()}
+                        className="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded bg-[#10B981]/20 text-[#10B981] hover:bg-[#10B981]/30 disabled:opacity-40 transition-colors"
+                      >
+                        {installing ? "جاري…" : "تثبيت"}
+                      </button>
+                    </>
                   )}
-                  <button
-                    onClick={handleInstall}
-                    disabled={installing || !installInput.trim()}
-                    className="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded bg-[#10B981]/20 text-[#10B981] hover:bg-[#10B981]/30 disabled:opacity-40 transition-colors"
-                  >
-                    {installing ? "جاري…" : "تثبيت"}
-                  </button>
                 </div>
               )}
               <div
