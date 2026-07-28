@@ -7900,7 +7900,10 @@ async function runCodeLocally(
 
     if (language === "javascript") {
       await writeFile(join(dir, "main.js"), code);
-      const r = await execAsync("node", ["main.js"]);
+      // Make npm-installed packages (from WS install sessions) visible in HTTP runs too
+      const jsModulesPath = (process.env.NUKHBA_JSLIB_DIR ?? "/home/runner/workspace/.nodelibs") + "/node_modules";
+      const jsEnv = { ...process.env, HOME: dir, NODE_PATH: jsModulesPath };
+      const r = await execAsync("node", ["main.js"], { env: jsEnv });
       output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
       exitCode = r.code;
 
@@ -7955,7 +7958,11 @@ async function runCodeLocally(
 
     } else if (language === "python") {
       await writeFile(join(dir, "main.py"), code);
-      const r = await execAsync("python3", ["main.py"]);
+      // Make pip-installed packages (from WS install sessions) visible in HTTP runs too
+      const pyLibDir = process.env.NUKHBA_PYLIB_DIR
+        ?? "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages";
+      const pyEnv = { ...process.env, HOME: dir, PYTHONPATH: pyLibDir };
+      const r = await execAsync("python3", ["main.py"], { env: pyEnv });
       output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
       exitCode = r.code;
 
@@ -7967,7 +7974,13 @@ async function runCodeLocally(
 
     } else if (language === "c") {
       await writeFile(join(dir, "main.c"), code);
-      const compile = await execAsync("gcc", ["-o", "main", "main.c", "-lm"]);
+      // gnu11  = C11 + GNU + POSIX extensions (enables usleep, pthread_*, nanosleep…)
+      // -D_DEFAULT_SOURCE exposes all BSD/POSIX symbols explicitly
+      // -pthread links libpthread AND sets compile-time threading defines
+      const compile = await execAsync("gcc", [
+        "-o", "main", "main.c",
+        "-std=gnu11", "-D_DEFAULT_SOURCE", "-lm", "-pthread",
+      ]);
       if (compile.code !== 0) {
         return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
       }
@@ -7977,7 +7990,11 @@ async function runCodeLocally(
 
     } else if (language === "cpp") {
       await writeFile(join(dir, "main.cpp"), code);
-      const compile = await execAsync("g++", ["-o", "main", "main.cpp", "-lm", "-std=c++17"]);
+      // gnu++17 = C++17 + GNU + POSIX extensions; -pthread for threading
+      const compile = await execAsync("g++", [
+        "-o", "main", "main.cpp",
+        "-std=gnu++17", "-D_DEFAULT_SOURCE", "-lm", "-pthread",
+      ]);
       if (compile.code !== 0) {
         return { output: compile.stderr || compile.stdout || "خطأ في الترجمة", exitCode: compile.code };
       }

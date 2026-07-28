@@ -145,17 +145,29 @@ export function initSoloRunWss(server: Server) {
             case "bash":
               cmd = "bash"; args = [entryAbs]; break;
             case "c":
-              cmd = "bash"; args = ["-c", `cd ${safeDir} && gcc *.c -o _prog -lm -std=c11 2>&1 && ./_prog`]; break;
+              // gnu11 = C11 + GNU extensions + POSIX (enables usleep, pthread_*, nanosleep, etc.)
+              // -D_DEFAULT_SOURCE exposes all BSD/POSIX symbols explicitly
+              // -pthread links libpthread AND sets compile-time threading defines
+              cmd = "bash"; args = ["-c",
+                `cd ${safeDir} && gcc *.c -o _prog -std=gnu11 -D_DEFAULT_SOURCE -lm -pthread 2>&1 && ./_prog`];
+              break;
             case "cpp":
-              cmd = "bash"; args = ["-c", `cd ${safeDir} && g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -lm -std=c++17 2>&1 && ./_prog`]; break;
+              // gnu++17 = C++17 + GNU + POSIX extensions; -pthread for threading
+              cmd = "bash"; args = ["-c",
+                `cd ${safeDir} && g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -std=gnu++17 -D_DEFAULT_SOURCE -lm -pthread 2>&1 && ./_prog`];
+              break;
             default:
               try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
               return;
           }
 
-          const spawnEnv: NodeJS.ProcessEnv = language === "javascript"
-            ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
-            : process.env;
+          // Set language-specific env vars so installed packages are visible
+          const spawnEnv: NodeJS.ProcessEnv =
+            language === "javascript"
+              ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
+              : language === "python"
+                ? { ...process.env, PYTHONPATH: SHARED_PYLIB_DIR }
+                : process.env;
           const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
           activeProcesses.set(processKey, { proc, tmpDir });
