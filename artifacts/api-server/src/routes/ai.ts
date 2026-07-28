@@ -5148,9 +5148,9 @@ router.post("/ai/platform-help", async (req, res): Promise<any> => {
 
 // ── Wandbox fallback — only for languages not installed locally ────────────────
 const WANDBOX_URL      = "https://wandbox.org/api/compile.json";
+// Wandbox currently supports Rust only — Kotlin was removed from their service.
 const WANDBOX_FALLBACK: Record<string, string> = {
-  kotlin: "kotlin-1.9.10",
-  rust:   "rust-1.82.0",
+  rust: "rust-1.82.0",
 };
 
 async function runViaWandbox(
@@ -7906,23 +7906,49 @@ async function runCodeLocally(
 
     } else if (language === "typescript") {
       await writeFile(join(dir, "main.ts"), code);
-      const compile = await execAsync("node", [
-        "--input-type=module",
-        "--eval",
-        `import {transpileModule} from 'typescript'; import {readFileSync,writeFileSync} from 'fs';
-         const src=readFileSync('${join(dir,"main.ts")}','utf8');
-         const out=transpileModule(src,{compilerOptions:{module:1,target:3}}).outputText;
-         writeFileSync('${join(dir,"main.js")}',out);`,
-      ], { timeout: 8000 }).catch(() => null);
+
+      // Write a CJS helper that uses TypeScript's transpileModule.
+      // We require() TypeScript via an absolute path so the subprocess
+      // doesn't need to resolve it relative to the temp dir (which has
+      // no node_modules).  The pnpm workspace root always has a symlink at
+      // /home/runner/workspace/node_modules/typescript.
+      const tsLibPath = "/home/runner/workspace/node_modules/typescript";
+      const transpileScript = [
+        `const ts = require(${JSON.stringify(tsLibPath)});`,
+        `const fs = require('fs');`,
+        `const src = fs.readFileSync(${JSON.stringify(join(dir, "main.ts"))}, 'utf8');`,
+        `const out = ts.transpileModule(src, {`,
+        `  compilerOptions: {`,
+        `    module: ts.ModuleKind.CommonJS,`,
+        `    target: ts.ScriptTarget.ES2022,`,
+        `    esModuleInterop: true,`,
+        `    allowSyntheticDefaultImports: true,`,
+        `    strict: false,`,
+        `    skipLibCheck: true,`,
+        `  }`,
+        `}).outputText;`,
+        `fs.writeFileSync(${JSON.stringify(join(dir, "main.js"))}, out);`,
+      ].join("\n");
+      await writeFile(join(dir, "_transpile.cjs"), transpileScript);
+
+      const compile = await execAsync("node", ["_transpile.cjs"]).catch(() => null);
+
       if (!compile || compile.code !== 0) {
-        // Fallback: strip type annotations and run as JS
+        // Fallback: manually strip TypeScript-specific syntax
         const stripped = code
+          // Remove access modifiers + abstract/override/declare before identifiers
+          .replace(/\b(private|public|protected|readonly|abstract|override|declare)\s+(?=[a-zA-Z_$#])/g, "")
+          // Remove type annotations  :  SomeType
           .replace(/:\s*\w[\w<>\[\]|&, ?.]*(?=[\s=,);\n{])/g, "")
+          // Remove generic type parameters  <T extends ...>
           .replace(/<\w[\w<>\[\]|&, ?. ]*>/g, "")
+          // Remove interface and type alias blocks
           .replace(/^(interface|type)\s+[^{]+\{[\s\S]*?\}/gm, "")
+          // Remove export keyword from statements
           .replace(/^export\s+/gm, "");
         await writeFile(join(dir, "main.js"), stripped);
       }
+
       const r = await execAsync("node", ["main.js"]);
       output = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
       exitCode = r.code;
@@ -8017,7 +8043,15 @@ router.post("/ai/run-code", async (req, res): Promise<any> => {
     return res.json({ output: "Dart غير مثبّت في هذه البيئة — جرّب dartpad.dev للتنفيذ المباشر.", exitCode: 0 });
   }
 
-  // Kotlin / Rust → use Wandbox (not installed locally)
+  // Kotlin — Wandbox dropped Kotlin support; no local runtime either
+  if (language === "kotlin") {
+    return res.json({
+      output: "Kotlin غير متاح للتشغيل المباشر حالياً.\nجرّب play.kotlinlang.org لتشغيل كود Kotlin أونلاين.",
+      exitCode: 0,
+    });
+  }
+
+  // Rust → use Wandbox
   const wandboxCompiler = WANDBOX_FALLBACK[language];
   if (wandboxCompiler) {
     try {
