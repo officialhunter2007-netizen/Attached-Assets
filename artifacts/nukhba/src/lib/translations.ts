@@ -106,7 +106,7 @@ export const translations = {
       planGoldCta: "اشترك الذهبية",
       bronzeTitle: "الباقة البرونزية — ابدأ بأقل تكلفة",
       bronzeDesc: "١٬٠٠٠ 💎 جوهرة (٧١ يومياً) لجميع التخصصات لمدة ١٤ يوماً. مثالية للبداية.",
-      footerTagline: "صُنع بشغف لطلاب اليمن",
+      footerTagline: "صُنع بشغف للطلاب الجادين",
     },
     learn: {
       badge: "اختر مسارك التعليمي",
@@ -962,7 +962,7 @@ export const translations = {
       planGoldCta: "Subscribe Gold",
       bronzeTitle: "Bronze Plan — Start at the lowest cost",
       bronzeDesc: "1,000 💎 gems (71/day) for all specialties for 14 days. Perfect for beginners.",
-      footerTagline: "Made with passion for Yemeni students",
+      footerTagline: "Made with passion for serious students",
     },
     learn: {
       badge: "Choose Your Learning Path",
