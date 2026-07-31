@@ -312,8 +312,7 @@ export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
             setOpen(false);
             setError(null);
             setSelectedSlug("");
-            setAmount(100);
-            setAllocating(false);
+            setAmount("100");
           }}
           className={`absolute top-3 ${ar ? "left-3" : "right-3"} text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/10 transition`}
           aria-label={ar ? "إغلاق" : "Close"}

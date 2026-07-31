@@ -1094,7 +1094,7 @@ function renderMemoryArray(items: MemoryEntry[] | undefined, sep: string): strin
   }).join(sep);
 }
 
-function wrapEntries(arr: string[] | undefined): MemoryEntry[] | undefined {
+function wrapEntries(arr: (string | MemoryEntry)[] | undefined): MemoryEntry[] | undefined {
   if (!arr?.length) return undefined;
   const now = new Date().toISOString();
   return arr.map(v => typeof v === "object" && "value" in (v as any)

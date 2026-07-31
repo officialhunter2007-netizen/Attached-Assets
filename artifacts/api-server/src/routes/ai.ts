@@ -47,9 +47,14 @@ import {
   loadProgress,
   mutateProgress,
   getActiveMaterialContext,
+  advanceActiveMaterialChapter,
   loadCoveredPoints,
   markPointsCovered,
   safeParseStructuredOutline,
+  getChapterChunksByPageRange,
+  searchMaterialChunks,
+  searchAcrossMaterials,
+  getMaterialOpeningPages,
   type StructuredChapter,
   type CoveredPointsMap,
 } from "./materials";
@@ -479,7 +484,7 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
   // never sees "(500)" before the lesson even starts.
   let user: Awaited<ReturnType<typeof getUser>>;
   try {
-    user = await getUser(userId);
+    user = await getUser(userId!);
   } catch (err: any) {
     console.error("[ai/lesson] getUser failed:", err?.message || err);
     res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر تجهيز الدرس بسبب خلل مؤقّت. أعد المحاولة بعد لحظات." });
@@ -494,7 +499,7 @@ router.post("/ai/lesson", async (req, res): Promise<void> => {
 
   let access: Awaited<ReturnType<typeof getSubjectAccess>>;
   try {
-    access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+    access = await getSubjectAccess(userId!, subjectId ?? "unknown", user);
   } catch (err: any) {
     console.error("[ai/lesson] getSubjectAccess failed:", err?.message || err);
     res.status(503).json({ error: "TEMPORARY_FAILURE", message: "تعذّر تجهيز الدرس بسبب خلل مؤقّت. أعد المحاولة بعد لحظات." });
@@ -1436,7 +1441,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     return;
   }
 
-  const user = await getUser(userId);
+  const user = await getUser(userId!);
   if (!user) {
     res.status(401).json({ error: "User not found" });
     return;
@@ -1457,7 +1462,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
   // this layer never appears as a hard error in the chat.
   let access: Awaited<ReturnType<typeof getSubjectAccess>>;
   try {
-    access = await getSubjectAccess(userId, subjectId ?? "unknown", user);
+    access = await getSubjectAccess(userId!, subjectId ?? "unknown", user);
   } catch (err: any) {
     console.error("[ai/teach] getSubjectAccess failed:", err?.message || err);
     res.status(503).json({
@@ -1570,7 +1575,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
     try {
       await db.update(usersTable)
         .set({ firstLessonComplete: true })
-        .where(eq(usersTable.id, userId));
+        .where(eq(usersTable.id, userId!));
     } catch {}
     setSseHeaders(res);
     const farewell = `<div><p>انتهت جواهر جلستك المجانية على هذا التخصص ✨</p><p>راجع ما تعلّمته في لوحتك. للاستمرار، اشترك من صفحة الاشتراكات.</p></div>`;
@@ -1603,7 +1608,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         })
         .from(studentMistakesTable)
         .where(and(
-          eq(studentMistakesTable.userId, userId),
+          eq(studentMistakesTable.userId, userId!),
           eq(studentMistakesTable.subjectId, subjectId),
           eq(studentMistakesTable.resolved, false),
         ))
@@ -1658,7 +1663,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         .select()
         .from(userSubjectPlansTable)
         .where(and(
-          eq(userSubjectPlansTable.userId, userId),
+          eq(userSubjectPlansTable.userId, userId!),
           eq(userSubjectPlansTable.subjectId, subjectId)
         ));
       if (dbPlan && !dbPlanContext) {
@@ -1673,7 +1678,7 @@ router.post("/ai/teach", async (req, res): Promise<void> => {
         .select()
         .from(lessonSummariesTable)
         .where(and(
-          eq(lessonSummariesTable.userId, userId),
+          eq(lessonSummariesTable.userId, userId!),
           eq(lessonSummariesTable.subjectId, subjectId)
         ))
         .orderBy(desc(lessonSummariesTable.conversationDate))
@@ -2903,9 +2908,10 @@ ${formattingRulesEN}`;
   // ── Professor curriculum mode: inject the active PDF context ─────────────
   try {
     if (subjectId) {
-      const ctx = await getActiveMaterialContext(userId, subjectId);
-      if (ctx?.mode === "professor" && ctx.material) {
-        const m = ctx.material;
+      const _ctx = await getActiveMaterialContext(userId!, subjectId);
+      if (_ctx != null && _ctx!.mode === "professor" && _ctx!.material != null) {
+        const ctx = _ctx!;
+        const m = _ctx!.material!;
         const langNote = m.language === "en"
           ? "النص الأصلي بالإنجليزية — أجب بالإنجليزية افتراضياً (نفس لغة المصدر)، إلا إذا طلب الطالب الإجابة بالعربية صراحةً."
           : "النص الأصلي بالعربية — أجب بالعربية افتراضياً، إلا إذا طلب الطالب الإجابة بالإنجليزية.";
@@ -2914,7 +2920,7 @@ ${formattingRulesEN}`;
         // block, the chapter content block, the point checklist, and the
         // chapter/page reference detector below.
         const structuredChapters: StructuredChapter[] = safeParseStructuredOutline(m.structuredOutline);
-        const coveredMap = await loadCoveredPoints(userId, m.id).catch(() => ({} as Record<string, number[]>));
+        const coveredMap = await loadCoveredPoints(userId!, m.id).catch(() => ({} as Record<string, number[]>));
         let progressForHandler: Awaited<ReturnType<typeof loadProgress>> | undefined;
         let isReviewingForHandler = false;
         let injectedChapterIndexForHandler = -1;
@@ -2924,7 +2930,7 @@ ${formattingRulesEN}`;
         // student left off and can say "أكملت الفصل 3، اليوم نبدأ الفصل 4".
         let chapterProgressBlock = "";
         try {
-          const prog = await loadProgress(userId, m.id, m.outline ?? "", m.structuredOutline ?? null);
+          const prog = await loadProgress(userId!, m.id, m.outline ?? "", m.structuredOutline ?? null);
           progressForHandler = prog;
           if (prog.chapters.length > 0) {
             const completedNames = prog.completedChapterIndices.map((i) => `${i + 1}. ${prog.chapters[i]}`);
@@ -3002,7 +3008,7 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           if (structuredChapters.length > 0) {
             const reviewNumeric = q.match(/(?:راج[عِ]?|ارجع|مراجعة|review)[^0-9]{0,40}(?:الفصل|chapter|باب|الباب)\s*(?:رقم\s*)?(\d{1,3})/i);
             if (reviewNumeric) {
-              const n = Number(reviewNumeric[1]);
+              const n = Number(reviewNumeric![1]);
               if (n >= 1 && n <= structuredChapters.length) {
                 reviewMatchIdx = n - 1;
                 isReviewing = true;
@@ -3032,7 +3038,7 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           if (reviewMatchIdx >= 0) {
             targetChapterIdx = reviewMatchIdx;
           } else if (chapterRefMatch && structuredChapters.length > 0) {
-            const n = Number(chapterRefMatch[1]);
+            const n = Number(chapterRefMatch![1]);
             if (n >= 1 && n <= structuredChapters.length) targetChapterIdx = n - 1;
           }
 
@@ -3043,8 +3049,9 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
           if (targetChapterIdx >= 0) {
             activeChapter = structuredChapters[targetChapterIdx];
             activeChapterIdx = targetChapterIdx;
-          } else if (structuredChapters.length > 0 && prog && prog.chapters.length > 0) {
-            activeChapterIdx = Math.min(prog.currentChapterIndex, structuredChapters.length - 1);
+          } else if (structuredChapters.length > 0 && prog !== undefined && prog !== null && (prog as NonNullable<typeof prog>).chapters.length > 0) {
+            const p = prog!;
+            activeChapterIdx = Math.min(p!.currentChapterIndex, structuredChapters.length - 1);
             activeChapter = structuredChapters[activeChapterIdx];
           }
 
@@ -3054,18 +3061,18 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
             chapterChecklistBlock += `
 
 — وضع المراجعة لهذا الفصل —
-الطالب يطلب مراجعة الفصل رقم ${activeChapterIdx + 1}: "${activeChapter.title}". هذه ليست جلسة تدريس جديدة:
+الطالب يطلب مراجعة الفصل رقم ${activeChapterIdx + 1}: "${activeChapter!.title}". هذه ليست جلسة تدريس جديدة:
 - اشرح بإيجاز محاور الفصل ثم اطرح سؤالاً يقيس ما يتذكّره الطالب.
 - لا تضع [POINT_DONE:N] في هذه المراجعة (النقاط مُغطّاة سابقاً) إلا إذا قال الطالب صراحةً "أعد تسجيل تغطية هذه النقطة".
 - لا تضع [STAGE_COMPLETE] في جلسة مراجعة.
 `;
           }
 
-          if (activeChapter && activeChapter.startPage && activeChapter.endPage) {
+          if (activeChapter && activeChapter!.startPage && activeChapter!.endPage) {
             const chapterChunks = await getChapterChunksByPageRange(
               m.id,
-              activeChapter.startPage,
-              activeChapter.endPage,
+              activeChapter!.startPage,
+              activeChapter!.endPage,
               24000,
             );
             if (chapterChunks.length > 0) {
@@ -3075,7 +3082,7 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
               pagesUsed.push(...chapterChunks.map((c) => c.pageNumber));
 
               // Build the per-point checklist from the structured outline.
-              const pts = Array.isArray(activeChapter.keyPoints) ? activeChapter.keyPoints : [];
+              const pts = Array.isArray(activeChapter!.keyPoints) ? activeChapter!.keyPoints : [];
               const coveredSet = new Set(coveredMap[String(activeChapterIdx)] ?? []);
               injectedChapterIndex = activeChapterIdx;
               injectedPointTexts = pts;
@@ -3089,8 +3096,8 @@ ${next ? `الفصل التالي بعد إتقان هذا: "${next}"` : "هذا
               // to a fresh teaching session at the prompt layer.
               chapterChecklistBlock += `
 
-— الفصل النشط رقم ${activeChapterIdx + 1}: "${activeChapter.title}" (صفحات ${activeChapter.startPage}–${activeChapter.endPage}) —
-ملخص الفصل: ${activeChapter.summary || "(لا ملخص)"}
+— الفصل النشط رقم ${activeChapterIdx + 1}: "${activeChapter!.title}" (صفحات ${activeChapter!.startPage}–${activeChapter!.endPage}) —
+ملخص الفصل: ${activeChapter!.summary || "(لا ملخص)"}
 
 قائمة نقاط الفصل (تُحدَّث بعد كل ردّ):
 ${checklist}
@@ -3187,7 +3194,7 @@ ${formatted}
                 .select({ id: courseMaterialsTable.id, fileName: courseMaterialsTable.fileName })
                 .from(courseMaterialsTable)
                 .where(and(
-                  eq(courseMaterialsTable.userId, userId),
+                  eq(courseMaterialsTable.userId, userId!),
                   eq(courseMaterialsTable.subjectId, subjectId),
                   eq(courseMaterialsTable.role, "reference"),
                   ne(courseMaterialsTable.id, m.id),
@@ -3232,8 +3239,8 @@ ${lines.join("\n\n―――\n\n")}
           // ── Last-resort fallbacks for materials with no structured data
           if (!chapterChecklistBlock && !retrievedBlock) {
             let chunks = await getMaterialOpeningPages(m.id, 4);
-            if (chunks.length === 0 && m.extractedText && m.extractedText.length > 0) {
-              chunks = [{ pageNumber: 1, chunkIndex: 0, content: m.extractedText.slice(0, 12000), score: 0 }];
+            if (chunks.length === 0 && m.extractedText != null && (m.extractedText as string).length > 0) {
+              chunks = [{ pageNumber: 1, chunkIndex: 0, content: (m.extractedText as string).slice(0, 12000), score: 0 }];
             }
             if (chunks.length > 0) {
               const formatted = chunks
@@ -3278,9 +3285,9 @@ ${formatted}
         // and drill them first instead of repeating things already mastered.
         let weakAreasBlock = "";
         try {
-          const weak = ctx.recentWeakAreas ?? [];
+          const weak = (ctx as any).recentWeakAreas ?? [];
           if (weak.length > 0 && !isDiagnosticPhase) {
-            const lines = weak.map((w, i) => `${i + 1}. ${w.topic} (أخطأ فيها ${w.missed} مرة)`).join("\n");
+            const lines = weak.map((w: any, i: number) => `${i + 1}. ${w.topic} (أخطأ فيها ${w.missed} مرة)`).join("\n");
             weakAreasBlock = `
 
 — نقاط ضعف الطالب من اختباراته الأخيرة على هذا الملف —
@@ -3440,11 +3447,11 @@ ${retrievedBlock}
   const recentHistory = (Array.isArray(history) ? history : [])
     .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
     .map((m: any) => ({ role: m.role as "user" | "assistant", content: normaliseContent(m.content) }))
-    .filter((m) => m.content.trim().length > 0)
+    .filter((m: any) => m.content.trim().length > 0)
     .slice(-MAX_HISTORY_MESSAGES);
   const compressionSplit = Math.max(0, recentHistory.length - VERBATIM_RECENT);
   type TeachMessage = { role: "user" | "assistant"; content: string | GeminiContentPart[] };
-  const claudeMessages: TeachMessage[] = recentHistory.map((m, i) =>
+  const claudeMessages: TeachMessage[] = recentHistory.map((m: any, i: number) =>
     i < compressionSplit
       ? { role: m.role, content: compressOlderTurn(m.content) }
       : m,
@@ -3585,17 +3592,20 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     const tokenMatch = trimmedUserMessage.match(/masteryToken=([A-Za-z0-9_\-.]{20,2048})/);
     if (tokenMatch && subjectId) {
       const v = verifyMasteryToken(tokenMatch[1]);
-      if (v.ok && v.payload.uid === userId && v.payload.sid === subjectId) {
-        // Phase 3 hardening — atomically consume the attempt-id so a token
-        // can be honored at most once. Without this, a legitimate high-
-        // mastery token would be replayable for 8h across any number of
-        // [LAB_REPORT] submissions and could be used to skip stages the
-        // student never actually mastered (architect round-6 finding #2).
-        // A duplicate use leaves telemetryVerified=false → no
-        // STAGE_COMPLETE.
-        if (consumeAttemptToken(v.payload.aid)) {
-          telemetryVerified = true;
-          signedAvg = v.payload.avg;
+      if (v.ok === true) {
+        const vp = (v as { ok: true; payload: import("../lib/lab-exam-token").MasteryTokenPayload }).payload;
+        if (vp.uid === userId && vp.sid === subjectId) {
+          // Phase 3 hardening — atomically consume the attempt-id so a token
+          // can be honored at most once. Without this, a legitimate high-
+          // mastery token would be replayable for 8h across any number of
+          // [LAB_REPORT] submissions and could be used to skip stages the
+          // student never actually mastered (architect round-6 finding #2).
+          // A duplicate use leaves telemetryVerified=false → no
+          // STAGE_COMPLETE.
+          if (consumeAttemptToken(vp.aid)) {
+            telemetryVerified = true;
+            signedAvg = vp.avg;
+          }
         }
       }
     }
@@ -3643,7 +3653,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     if (attachedImageDataUrl) {
       const multimodalParts: GeminiContentPart[] = [
         { type: "text", text: userContentWithReminder },
-        { type: "image_url", image_url: { url: attachedImageDataUrl } },
+        { type: "image_url", image_url: { url: attachedImageDataUrl! } },
       ];
       claudeMessages.push({
         role: "user" as const,
@@ -3693,7 +3703,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     try {
       const safeContent = stripDataUrls(String(mutatedUserMessage || userMessage)).slice(0, 8000);
       await db.insert(aiTeacherMessagesTable).values({
-        userId,
+        userId: userId!,
         subjectId,
         subjectName: subjectName ?? null,
         role: "user",
@@ -3936,7 +3946,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         // can resolve. Failure to do so leaves the spinner stuck forever —
         // the original bug we are fixing in task #15.
         const promise = generateTeacherImage({
-          userId,
+          userId: userId!,
           subjectId: subjectId ?? null,
           prompt: promptText,
         });
@@ -4121,9 +4131,9 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
       };
       if (__gp.usageMetadata) {
         __geminiUsage = {
-          inputTokens: Number(__gp.usageMetadata.promptTokenCount ?? 0),
-          outputTokens: Number(__gp.usageMetadata.candidatesTokenCount ?? 0),
-          cachedInputTokens: Number(__gp.usageMetadata.cachedContentTokenCount ?? 0),
+          inputTokens: Number(__gp.usageMetadata!.promptTokenCount ?? 0),
+          outputTokens: Number(__gp.usageMetadata!.candidatesTokenCount ?? 0),
+          cachedInputTokens: Number(__gp.usageMetadata!.cachedContentTokenCount ?? 0),
         };
       }
 
@@ -4202,7 +4212,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   if (__imagePromises.length > 0) {
     const results = await Promise.allSettled(__imagePromises);
     for (const r of results) {
-      if (r.status === "fulfilled" && r.value.ok && r.value.provider === "fal") {
+      if (r.status === "fulfilled" && (r as PromiseFulfilledResult<any>).value.ok && (r as PromiseFulfilledResult<any>).value.provider === "fal") {
         __billableFalImages++;
       }
     }
@@ -4217,7 +4227,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     // When set, recordAiUsage clamps `costUsd` so SUM never exceeds capUsd
     // for this (userId, subjectId, since-subscription-start) window.
     const __capCtx = subjectSub && costStatus.capUsd > 0 ? {
-      userId,
+      userId: userId!,
       subjectId: subjectSub.subjectId,
       windowStart: subjectSub.createdAt,
       capUsd: costStatus.capUsd,
@@ -4225,14 +4235,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     try {
       if (__geminiUsage) {
         void recordAiUsage({
-          userId,
+          userId: userId!,
           subjectId: subjectId ?? null,
           route: "ai/teach",
           provider: "gemini",
           model: __activeModel,
-          inputTokens: __geminiUsage.inputTokens,
-          outputTokens: __geminiUsage.outputTokens,
-          cachedInputTokens: __geminiUsage.cachedInputTokens,
+          inputTokens: __geminiUsage!.inputTokens,
+          outputTokens: __geminiUsage!.outputTokens,
+          cachedInputTokens: __geminiUsage!.cachedInputTokens,
           latencyMs: Date.now() - __teachStart,
           metadata: {
             routerReason: routerDecision.reason,
@@ -4249,7 +4259,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // ── Failure path: rollback claims + emit friendly apology ───────────────
   if (__lastErr && !__success) {
     const __capCtxErr = subjectSub && costStatus.capUsd > 0 ? {
-      userId,
+      userId: userId!,
       subjectId: subjectSub.subjectId,
       windowStart: subjectSub.createdAt,
       capUsd: costStatus.capUsd,
@@ -4262,7 +4272,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     // carry no usage and correctly land on 0/0.
     const __failTokens = __geminiUsage ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
     void recordAiUsage({
-      userId,
+      userId: userId!,
       subjectId: subjectId ?? null,
       route: "ai/teach",
       provider: "gemini",
@@ -4323,7 +4333,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // model could ignore under prompt-injection): a real but low-mastery
   // token cannot advance progression, and a forged telemetry block cannot
   // advance progression at all.
-  const masteryFailsThreshold = telemetryVerified && (signedAvg === null || signedAvg < 70);
+  const masteryFailsThreshold = telemetryVerified && (signedAvg == null || (signedAvg as number) < 70);
   if (telemetryHadBlock && (!telemetryVerified || masteryFailsThreshold) && fullResponse.includes("[STAGE_COMPLETE]")) {
     fullResponse = fullResponse.replace(/\[STAGE_COMPLETE\]/g, "");
   }
@@ -4344,14 +4354,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
 
   // ── Growth reflection parsing ────────────────────────────────────────────
   const growthMatch = fullResponse.match(/\[GROWTH:\s*([\s\S]*?)\]/i);
-  const growthReflectionText = growthMatch ? growthMatch[1].trim() : "";
+  const growthReflectionText = growthMatch ? growthMatch![1].trim() : "";
 
   // ── Server-side micro-step persistence ──────────────────────────────────
   // Update the plan record directly so progress is durable even if the client
   // disconnects before it can call PATCH /api/user-plan/micro-step.
   if (microStepsDone.length > 0 && !isDiagnosticPhase) {
     db.select().from(userSubjectPlansTable).where(
-      and(eq(userSubjectPlansTable.userId, userId), eq(userSubjectPlansTable.subjectId, subjectId))
+      and(eq(userSubjectPlansTable.userId, userId!), eq(userSubjectPlansTable.subjectId, subjectId))
     ).then(([existingPlan]) => {
       if (!existingPlan) return;
       let completed: number[] = [];
@@ -4371,7 +4381,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   // Appended to the plan's growthReflections JSON array on [STAGE_COMPLETE].
   if (stageComplete && growthReflectionText && !isDiagnosticPhase) {
     db.select().from(userSubjectPlansTable).where(
-      and(eq(userSubjectPlansTable.userId, userId), eq(userSubjectPlansTable.subjectId, subjectId))
+      and(eq(userSubjectPlansTable.userId, userId!), eq(userSubjectPlansTable.subjectId, subjectId!))
     ).then(([plan]) => {
       if (!plan) return;
       let existing: Array<{ stageIndex: number; text: string; date: string }> = [];
@@ -4430,11 +4440,11 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     try {
       const newMistakeMatch = fullResponse.match(/\[MISTAKE:\s*([^|\]]+?)\s*\|\|\|\s*([^\]]+?)\s*\]/i);
       if (newMistakeMatch) {
-        const topic = newMistakeMatch[1].trim().slice(0, 120);
-        const mistake = newMistakeMatch[2].trim().slice(0, 800);
+        const topic = newMistakeMatch![1].trim().slice(0, 120);
+        const mistake = newMistakeMatch![2].trim().slice(0, 800);
         if (topic && mistake) {
           await db.insert(studentMistakesTable).values({
-            userId,
+            userId: userId!,
             subjectId,
             topic,
             mistake,
@@ -4451,7 +4461,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
             .set({ resolved: true, resolvedAt: new Date() })
             .where(and(
               eq(studentMistakesTable.id, mid),
-              eq(studentMistakesTable.userId, userId),
+              eq(studentMistakesTable.userId, userId!),
             ));
         }
       }
@@ -4491,11 +4501,11 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   try {
     const matCtx = req.materialCtx;
     if (matCtx && !isDiagnosticPhase) {
-      const injectedIdx = matCtx.injectedChapterIndex;
-      const pointTexts = matCtx.injectedPointTexts;
+      const injectedIdx = matCtx!.injectedChapterIndex;
+      const pointTexts = matCtx!.injectedPointTexts;
       // In review mode the prompt instructs the model NOT to emit fresh
       // [POINT_DONE] tags; honor that on the persistence side too.
-      const isReviewing = matCtx.isReviewing;
+      const isReviewing = matCtx!.isReviewing;
       if (injectedIdx >= 0 && pointTexts.length > 0 && !isReviewing) {
         const tagMatches = Array.from(fullResponse.matchAll(/\[POINT_DONE:\s*(\d{1,3})\s*\]/gi));
         const indices: number[] = [];
@@ -4504,7 +4514,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           if (Number.isInteger(n) && n >= 1 && n <= pointTexts.length) indices.push(n - 1);
         }
         if (indices.length > 0) {
-          await markPointsCovered(userId, matCtx.materialId, injectedIdx, indices);
+          await markPointsCovered(userId!, matCtx!.materialId, injectedIdx, indices);
           pointsCoveredUpdate = { chapterIndex: injectedIdx, newlyCovered: indices };
         }
       }
@@ -4575,7 +4585,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         const cardText = (cardRes.text || "").trim();
         if (cardText.length > 50) {
           await db.insert(studyCardsTable).values({
-            userId,
+            userId: userId!,
             subjectId: cardSubjectId,
             stageIndex: cardStageIdx,
             stageName: cardStageName,
@@ -4612,16 +4622,19 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
   const __reviewingForAdvance: boolean = !!req.materialCtx?.isReviewing;
   if (stageComplete && !isDiagnosticPhase && subjectId && !__reviewingForAdvance) {
     try {
-      const advanced = await advanceActiveMaterialChapter(userId, subjectId);
-      if (advanced && advanced.chapters.length > 0) {
-        const ctx2 = await getActiveMaterialContext(userId, subjectId);
-        materialProgressUpdate = {
-          materialId: ctx2?.material?.id ?? 0,
-          chaptersTotal: advanced.chapters.length,
-          completedCount: advanced.completedChapterIndices.length,
-          currentChapterIndex: advanced.currentChapterIndex,
-          currentChapterTitle: advanced.chapters[advanced.currentChapterIndex] ?? null,
-        };
+      const advanced = await advanceActiveMaterialChapter(userId!, subjectId);
+      if (advanced != null) {
+        const adv = advanced!;
+        if (adv!.chapters.length > 0) {
+          const ctx2 = await getActiveMaterialContext(userId!, subjectId);
+          materialProgressUpdate = {
+            materialId: ctx2?.material?.id ?? 0,
+            chaptersTotal: adv!.chapters.length,
+            completedCount: adv!.completedChapterIndices.length,
+            currentChapterIndex: adv!.currentChapterIndex,
+            currentChapterTitle: adv!.chapters[adv!.currentChapterIndex] ?? null,
+          };
+        }
       }
     } catch (e: any) {
       console.warn("[ai/teach] chapter advance failed:", e?.message || e);
@@ -4685,10 +4698,10 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         // soft cap (their length policies live elsewhere).
         const __overLength =
           responseTier.maxWords != null &&
-          __wordCount > Math.ceil(responseTier.maxWords * 1.10);
+          __wordCount > Math.ceil((responseTier.maxWords as number) * 1.10);
         await db.insert(aiTeacherMessagesTable).values({
-          userId,
-          subjectId,
+          userId: userId!,
+          subjectId: subjectId!,
           subjectName: subjectName ?? null,
           role: "assistant",
           content: excerpt,
@@ -4737,7 +4750,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
     try {
       let turnCostUsd = 0;
       if (__geminiUsage) {
-        turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage.inputTokens, outputTokens: __geminiUsage.outputTokens, cachedInputTokens: __geminiUsage.cachedInputTokens });
+        turnCostUsd = costForUsage({ model: __activeModel, inputTokens: __geminiUsage!.inputTokens, outputTokens: __geminiUsage!.outputTokens, cachedInputTokens: __geminiUsage!.cachedInputTokens });
       }
       // Charge ONLY for images actually generated by paid fal.ai
       // (1 image ≈ $0.003). Cache hits, Pollinations, and SVG fallbacks
@@ -4768,14 +4781,14 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
         // Pre-gems wallet: count one message instead of debiting gems.
         await db.update(usersTable)
           .set({ messagesUsed: sql`${usersTable.messagesUsed} + 1` })
-          .where(eq(usersTable.id, userId));
+          .where(eq(usersTable.id, userId!));
       }
 
       if (wallet) {
         const result = await settleAiCharge({
           requestId: __requestId,
-          userId,
-          wallet,
+          userId: userId!,
+          wallet: wallet!,
           gems,
           source: "ai_teach",
           model: __activeModel,
@@ -4783,7 +4796,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           note: `AI turn (${__activeModel || "model?"})`,
         });
         gemsDeducted = result.gemsDeducted;
-        if (wallet.kind === "first-lesson" && firstLessonRecord) {
+        if (wallet!.kind === "first-lesson" && firstLessonRecord) {
           firstLessonRecord.freeMessagesUsed = Math.min(
             FREE_LESSON_GEM_LIMIT,
             firstLessonRecord.freeMessagesUsed + result.gemsDeducted,
@@ -4856,7 +4869,7 @@ ${labIntakeProtocol ? "الطالب طلب بناء بيئة تطبيقية." : 
           streakDays: newStreak,
           lastActive: today,
         })
-        .where(eq(usersTable.id, userId));
+        .where(eq(usersTable.id, userId!));
     } catch (err: any) {
       console.error("[ai/teach] streak update error:", err?.message || err);
     }

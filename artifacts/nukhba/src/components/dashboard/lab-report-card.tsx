@@ -7,7 +7,7 @@ import { useLang } from "@/lib/lang-context";
 
 export function LabReportCard({ report }: { report: LabReport }) {
   const { tr, lang } = useLang();
-  const ts = tr.dashboard.subject;
+  const ts = tr.subject;
   const [expanded, setExpanded] = useState(false);
   const date = new Date(report.createdAt).toLocaleDateString(
     lang === "ar" ? "ar-SA" : "en-US",

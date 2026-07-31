@@ -7,7 +7,7 @@ import { useLang } from "@/lib/lang-context";
 
 export function SummaryCard({ summary }: { summary: LessonSummary }) {
   const { tr, lang } = useLang();
-  const ts = tr.dashboard.subject;
+  const ts = tr.subject;
   const [expanded, setExpanded] = useState(false);
   const date = new Date(summary.conversationDate).toLocaleDateString(
     lang === "ar" ? "ar-SA" : "en-US",

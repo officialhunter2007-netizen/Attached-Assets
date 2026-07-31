@@ -1086,6 +1086,11 @@ export function initCodingRoomWss(server: Server) {
           broadcastJoined(roomId, { type: "host_reconnected", hostId: userId });
         }
 
+        if (!member) {
+          ws.close(1011, "خطأ في الخادم");
+          return;
+        }
+
         if (member.status === "kicked") {
           ws.send(JSON.stringify({ type: "rejected", message: "تم طردك من هذه الغرفة" }));
           ws.close(1008, "مطرود");

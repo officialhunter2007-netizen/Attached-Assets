@@ -209,9 +209,10 @@ function getGoogleClient() {
 
 // Override the transporter to force IPv4 (server has no IPv6 connectivity)
 const origGetToken = OAuth2Client.prototype.getToken;
-OAuth2Client.prototype.getToken = async function(this: OAuth2Client, code: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(OAuth2Client.prototype as any).getToken = async function(this: OAuth2Client, code: string) {
   (this as any).transporter = { ...(this as any).transporter, agent: ipv4Agent };
-  return origGetToken.call(this, code);
+  return (origGetToken as any).call(this, code);
 };
 
 function getFrontendUrl(path = "") {

@@ -66,7 +66,7 @@ router.get("/admin/v4/stories", requireUser, requireAdminMw, async (req: any, re
       ORDER BY unit_code, sort_order, created_at
     `);
     return res.json(result.rows);
-  } catch (err) {
+  } catch (err: any) {
     logger.error("stories list error", err);
     return res.status(500).json({ error: "DB error" });
   }
@@ -97,7 +97,7 @@ router.post("/admin/v4/stories", requireUser, requireAdminMw, requireSameOriginC
                 length(html_content) AS html_size
     `);
     return res.status(201).json(result.rows[0]);
-  } catch (err) {
+  } catch (err: any) {
     logger.error("story create error", err);
     return res.status(500).json({ error: "DB error" });
   }
@@ -115,7 +115,7 @@ router.patch("/admin/v4/stories/:id/order", requireUser, requireAdminMw, require
   try {
     await db.execute(sql`UPDATE v4_unit_stories SET sort_order = ${sortOrder} WHERE id = ${id}`);
     return res.json({ ok: true });
-  } catch (err) {
+  } catch (err: any) {
     logger.error("story order update error", err);
     return res.status(500).json({ error: "DB error" });
   }
@@ -148,7 +148,7 @@ router.put("/admin/v4/stories/:id", requireUser, requireAdminMw, requireSameOrig
     `);
     if (!result.rows[0]) return res.status(404).json({ error: "Not found" });
     return res.json(result.rows[0]);
-  } catch (err) {
+  } catch (err: any) {
     logger.error("story update error", err);
     return res.status(500).json({ error: "DB error" });
   }
@@ -162,7 +162,7 @@ router.delete("/admin/v4/stories/:id", requireUser, requireAdminMw, requireSameO
   try {
     await db.execute(sql`DELETE FROM v4_unit_stories WHERE id = ${id}`);
     return res.json({ ok: true });
-  } catch (err) {
+  } catch (err: any) {
     logger.error("story delete error", err);
     return res.status(500).json({ error: "DB error" });
   }
@@ -192,7 +192,7 @@ router.get("/v4/stories", requireUser, async (req: any, res: any): Promise<any> 
       ORDER BY unit_code, sort_order, created_at
     `);
     return res.json(result.rows);
-  } catch (err) {
+  } catch (err: any) {
     logger.error("stories student list error", err);
     return res.status(500).json({ error: "DB error" });
   }
@@ -213,7 +213,7 @@ router.get("/v4/stories/:id", requireUser, async (req: any, res: any): Promise<a
     const row = result.rows[0] as any;
     if (!row) return res.status(404).json({ error: "Not found" });
     return res.json(row);
-  } catch (err) {
+  } catch (err: any) {
     logger.error("story fetch error", err);
     return res.status(500).json({ error: "DB error" });
   }

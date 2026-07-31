@@ -1189,12 +1189,12 @@ export default function CodingRoom() {
     });
     monaco.editor.setTheme("nukhba-cyber");
 
-    editor.onDidChangeModelContent((event) => {
+    editor.onDidChangeModelContent((event: { changes: Array<{ rangeOffset: number; rangeLength: number; text: string; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }> }) => {
       if (isApplyingRemoteRef.current) return;
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       const currentFile = activeFileRef.current;
       if (!currentFile) return;
-      const ops = event.changes.map((c) => ({
+      const ops = event.changes.map((c: { rangeOffset: number; rangeLength: number; text: string; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }) => ({
         rangeOffset: c.rangeOffset,
         rangeLength: c.rangeLength,
         text: c.text,

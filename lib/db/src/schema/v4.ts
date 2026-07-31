@@ -678,6 +678,19 @@ export const v4StudentMemorySummariesTable = pgTable("v4_student_memory_summarie
 // `NEEDS_REVIEW` protocol tag (and any future mistake-detection paths) so
 // the teaching layer can surface the student's chronic gaps in Layer 4
 // even when a particular session is on an unrelated lesson.
+export const v4ConceptDrillsTable = pgTable("v4_concept_drills", {
+  id: serial("id").primaryKey(),
+  versionId: integer("version_id").notNull(),
+  lessonId: integer("lesson_id").notNull(),
+  conceptIndex: integer("concept_index").notNull(),
+  questions: jsonb("questions").notNull().$type<Array<{ prompt: string; kind: string; rubric?: string; solutionOutline?: string }>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("uq_v4_concept_drills_version_lesson_concept").on(t.versionId, t.lessonId, t.conceptIndex),
+]);
+
+export type V4ConceptDrill = typeof v4ConceptDrillsTable.$inferSelect;
+
 export const v4WeaknessTrackerTable = pgTable("v4_weakness_tracker", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),

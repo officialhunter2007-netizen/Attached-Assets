@@ -200,14 +200,14 @@ router.post("/admin/curriculum/content", async (req, res): Promise<any> => {
               .from(v4LessonConceptsTable)
               .where(inArray(v4LessonConceptsTable.lessonId, lessonIds))
               .orderBy(asc(v4LessonConceptsTable.conceptIndex))
-          : Promise.resolve([]),
+          : Promise.resolve([] as Array<typeof v4LessonConceptsTable.$inferSelect>),
         lessonIds.length > 0
           ? db
               .select()
               .from(v4LessonCommonMistakesTable)
               .where(inArray(v4LessonCommonMistakesTable.lessonId, lessonIds))
               .orderBy(asc(v4LessonCommonMistakesTable.mistakeIndex))
-          : Promise.resolve([]),
+          : Promise.resolve([] as Array<typeof v4LessonCommonMistakesTable.$inferSelect>),
         db
           .select()
           .from(v4LabScenariosTable)
@@ -299,14 +299,14 @@ router.post("/admin/curriculum/content", async (req, res): Promise<any> => {
               .from(v4LessonConceptsTable)
               .where(inArray(v4LessonConceptsTable.lessonId, lessonIds))
               .orderBy(asc(v4LessonConceptsTable.conceptIndex))
-          : Promise.resolve([]),
+          : Promise.resolve([] as Array<typeof v4LessonConceptsTable.$inferSelect>),
         lessonIds.length > 0
           ? db
               .select()
               .from(v4LessonCommonMistakesTable)
               .where(inArray(v4LessonCommonMistakesTable.lessonId, lessonIds))
               .orderBy(asc(v4LessonCommonMistakesTable.mistakeIndex))
-          : Promise.resolve([]),
+          : Promise.resolve([] as Array<typeof v4LessonCommonMistakesTable.$inferSelect>),
         db
           .select()
           .from(v4LabScenariosTable)
@@ -402,14 +402,14 @@ router.post("/admin/curriculum/content", async (req, res): Promise<any> => {
             .from(v4LessonConceptsTable)
             .where(inArray(v4LessonConceptsTable.lessonId, lessonIds))
             .orderBy(asc(v4LessonConceptsTable.conceptIndex))
-        : Promise.resolve([]),
+        : Promise.resolve([] as Array<typeof v4LessonConceptsTable.$inferSelect>),
       lessonIds.length > 0
         ? db
             .select()
             .from(v4LessonCommonMistakesTable)
             .where(inArray(v4LessonCommonMistakesTable.lessonId, lessonIds))
             .orderBy(asc(v4LessonCommonMistakesTable.mistakeIndex))
-        : Promise.resolve([]),
+        : Promise.resolve([] as Array<typeof v4LessonCommonMistakesTable.$inferSelect>),
       db
         .select()
         .from(v4LabScenariosTable)
