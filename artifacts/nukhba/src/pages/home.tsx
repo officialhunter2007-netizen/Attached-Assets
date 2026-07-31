@@ -269,33 +269,7 @@ export default function Home() {
 
           <div className="relative z-10 container mx-auto px-4 text-center max-w-5xl">
 
-            {/* Badge */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 mb-8 px-4 py-2 rounded-full text-sm font-bold"
-              style={{
-                background: "rgba(245,158,11,0.1)",
-                border: "1px solid rgba(245,158,11,0.3)",
-                boxShadow: "0 0 20px rgba(245,158,11,0.15), 0 0 40px rgba(245,158,11,0.07)",
-                color: "#F59E0B",
-              }}
-            >
-              <motion.span
-                animate={{ rotate: [0, 15, -15, 0] }}
-                transition={{ duration: 2, repeat: Infinity, repeatDelay: 2 }}
-              >
-                ✨
-              </motion.span>
-              {tr.home.badge}
-              <motion.span
-                animate={{ rotate: [0, -15, 15, 0] }}
-                transition={{ duration: 2, repeat: Infinity, repeatDelay: 2, delay: 0.3 }}
-              >
-                🇾🇪
-              </motion.span>
-            </motion.div>
+
 
             {/* Title */}
             <motion.h1
