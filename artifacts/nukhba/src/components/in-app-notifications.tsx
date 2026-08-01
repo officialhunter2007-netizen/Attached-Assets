@@ -5,8 +5,21 @@
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/lib/use-auth";
-import { X, Bell, CheckCircle2, Sparkles, BookOpen, Gem } from "lucide-react";
+import { X, Bell, CheckCircle2, Sparkles, BookOpen, Gem, ExternalLink, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
+
+/** فتح الرابط: خارجي → تبويب جديد، داخلي → التنقل داخل التطبيق */
+function openUrl(url: string, navigate: (to: string) => void) {
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("//")) {
+    window.open(url, "_blank", "noopener,noreferrer");
+  } else {
+    navigate(url);
+  }
+}
+
+function isExternal(url: string) {
+  return url.startsWith("http://") || url.startsWith("https://") || url.startsWith("//");
+}
 
 interface NotifData {
   url?: string;
@@ -263,7 +276,9 @@ function GenericCard({
   onDismiss: () => void;
 }) {
   const [, navigate] = useLocation();
-  const hasLink = notif.data?.url && notif.data.url !== "/";
+  const linkUrl = notif.data?.url;
+  const hasLink = !!linkUrl && linkUrl !== "/";
+  const external = hasLink && isExternal(linkUrl!);
 
   return (
     <>
@@ -300,22 +315,28 @@ function GenericCard({
               </span>
             )}
 
-            <div className="flex gap-2 w-full mt-1">
+            <div className="flex flex-col gap-2 w-full mt-1">
               {hasLink && (
                 <button
-                  onClick={() => { navigate(notif.data!.url!); onDismiss(); }}
-                  className="flex-1 py-2.5 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-300 text-sm font-semibold hover:bg-amber-400/25 transition-colors"
+                  onClick={() => { openUrl(linkUrl!, navigate); onDismiss(); }}
+                  className="w-full py-3 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-200 text-sm font-bold hover:bg-amber-400/25 active:scale-[.98] transition-all flex items-center justify-center gap-2"
                 >
-                  فتح
+                  {external ? (
+                    <>
+                      <ExternalLink className="w-4 h-4" />
+                      فتح الرابط
+                    </>
+                  ) : (
+                    <>
+                      <ArrowLeft className="w-4 h-4 rotate-180" />
+                      اذهب الآن
+                    </>
+                  )}
                 </button>
               )}
               <button
                 onClick={onDismiss}
-                className={`py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  hasLink
-                    ? "flex-1 bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
-                    : "w-full bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
-                }`}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 transition-colors"
               >
                 تم
               </button>

@@ -294,10 +294,13 @@ export function AdminNotifications() {
 
         {/* URL */}
         <div className="space-y-2">
-          <Label className="text-sm font-semibold">رابط الوجهة عند النقر</Label>
+          <Label className="text-sm font-semibold">رابط الزر (اختياري)</Label>
           <Input value={url} onChange={e => setUrl(e.target.value)}
-            placeholder="/learn  أو  /v4-map  أو  /"
+            placeholder="https://example.com  أو  /learn  أو  /v4-map"
             className="bg-white/5 border-white/10 font-mono text-sm" dir="ltr" />
+          <p className="text-[11px] text-muted-foreground">
+            يمكن إدراج رابط داخلي مثل <span className="text-white/50 font-mono">/learn</span> أو رابط خارجي مثل <span className="text-white/50 font-mono">https://…</span> — سيظهر زر للطالب ينقله إليه مباشرة.
+          </p>
         </div>
 
         {/* Expiry */}
