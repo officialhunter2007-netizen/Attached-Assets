@@ -747,6 +747,8 @@ export default function V4Lesson() {
     mode?: 'admin';
   } | null>(null);
   const [visualExplainReady, setVisualExplainReady] = useState(false);
+  // Pending confirmation before triggering visual explain (shows 50-gem cost warning)
+  const [veConfirmMsg, setVeConfirmMsg] = useState<string | null>(null);
 
   // ── شرح سطر بسطر (line-by-line code explanation drawer) ──────────────────
   type ExplainLine = { n: number; code: string; explanation: string };
@@ -1004,7 +1006,7 @@ export default function V4Lesson() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ messageText: messageContent, context: contextMsgs }),
+        body: JSON.stringify({ messageText: messageContent, context: contextMsgs, specialtySlug: slug }),
       });
       if (!startRes.ok) {
         const d = await startRes.json().catch(() => ({}));
@@ -1849,7 +1851,7 @@ export default function V4Lesson() {
                 }
                 onVisualExplain={
                   m.role === "assistant" && !streaming && m.content.trim() && !m.content.trim().startsWith("⚠️")
-                    ? () => handleVisualExplain(m.content)
+                    ? () => setVeConfirmMsg(m.content)
                     : undefined
                 }
                 visualExplainEnabled={visualExplainReady}
@@ -2116,6 +2118,65 @@ export default function V4Lesson() {
         </div>
       )}
     </div>
+
+      {/* ── Visual Explain Cost Confirmation ──────────────────────────────── */}
+      {veConfirmMsg && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+          onClick={() => setVeConfirmMsg(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-5 flex flex-col gap-4"
+            style={{ background: "#0e1323", border: "1px solid rgba(251,191,36,0.25)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Icon + title */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0">
+                <Eye className="w-5 h-5 text-black" />
+              </div>
+              <div>
+                <p className="font-black text-white text-sm" style={{ direction: "rtl" }}>التوضيح البصري التفاعلي</p>
+                <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.5)", direction: "rtl" }}>شرح بصري متحرك للمفهوم</p>
+              </div>
+            </div>
+
+            {/* Cost notice */}
+            <div
+              className="rounded-xl px-4 py-3 flex items-center gap-2.5"
+              style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)" }}
+            >
+              <Gem className="w-4 h-4 text-amber-400 shrink-0" />
+              <p className="text-sm font-bold text-amber-200" style={{ direction: "rtl" }}>
+                تكلفة هذه الميزة <span className="text-amber-400">50 جوهرة</span> لكل طلب
+              </p>
+            </div>
+
+            <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.55)", direction: "rtl" }}>
+              سيقوم المشرف بإنشاء شرح بصري تفاعلي للمفهوم. ستُخصم الجواهر فور إرسال الطلب.
+            </p>
+
+            {/* Actions */}
+            <div className="flex gap-2 mt-1" style={{ direction: "rtl" }}>
+              <button
+                className="flex-1 py-2.5 rounded-xl font-black text-sm text-black"
+                style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}
+                onClick={() => { const msg = veConfirmMsg; setVeConfirmMsg(null); handleVisualExplain(msg); }}
+              >
+                تأكيد وإرسال
+              </button>
+              <button
+                className="px-4 py-2.5 rounded-xl font-bold text-sm"
+                style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.6)" }}
+                onClick={() => setVeConfirmMsg(null)}
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Visual Explain Overlay ─────────────────────────────────────────── */}
       {visualOverlay && (

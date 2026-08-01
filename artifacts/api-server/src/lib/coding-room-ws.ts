@@ -1191,3 +1191,10 @@ export function initCodingRoomWss(server: Server) {
 export function getRoomOnlineCount(roomId: number): number {
   return [...getRoomClients(roomId)].filter((c) => c.isOnline && c.status === "joined").length;
 }
+
+/** Live WS presence check: is this user currently connected AND joined in the room? */
+export function isUserOnlineInRoom(roomId: number, userId: number): boolean {
+  return [...getRoomClients(roomId)].some(
+    (c) => c.userId === userId && c.isOnline && c.status === "joined",
+  );
+}

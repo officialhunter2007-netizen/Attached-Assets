@@ -1,6 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
+
+const LESSON_COST_USD = 0.004; // 4 gems per lesson (1 USD = 1000 gems)
 
 const router = Router();
 
@@ -97,6 +100,64 @@ router.post("/typing/progress", requireUser, requireCsrf, async (req: any, res: 
     `);
 
     res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Internal error" });
+  }
+});
+
+// ── GET /api/typing/wallets — active gem wallets for subject picker ────────────
+router.get("/typing/wallets", requireUser, async (req: any, res: any) => {
+  try {
+    const userId = req.session.userId as number;
+    const rows = await db.execute(sql`
+      SELECT
+        w.subject_id       AS "subjectId",
+        w.gems_balance     AS "gemsBalance",
+        s.name             AS "specialtyName",
+        s.icon             AS "specialtyIcon"
+      FROM student_gem_wallets w
+      LEFT JOIN v4_specialties s ON s.slug = w.subject_id
+      WHERE w.user_id = ${userId}
+        AND w.gems_balance > 0
+        AND (w.expires_at IS NULL OR w.expires_at > NOW())
+      ORDER BY w.gems_balance DESC
+    `);
+    res.json({ wallets: rows.rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Internal error" });
+  }
+});
+
+// ── POST /api/typing/charge-lesson — deduct 4 gems for lesson completion ──────
+router.post("/typing/charge-lesson", requireUser, requireCsrf, async (req: any, res: any) => {
+  try {
+    const userId = req.session.userId as number;
+    const { lessonId, subjectId } = req.body ?? {};
+
+    const parsedId = Number(lessonId);
+    if (!Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_LESSON_ID) {
+      res.status(400).json({ error: "Invalid lessonId" });
+      return;
+    }
+    if (!subjectId || typeof subjectId !== "string") {
+      res.status(400).json({ error: "subjectId مطلوب" });
+      return;
+    }
+
+    const charge = await chargeV4Ai({
+      requestId: `typing-lesson:${userId}:${parsedId}`,
+      userId,
+      subjectId,
+      costUsd: LESSON_COST_USD,
+      source: "v4_typing_lesson",
+    });
+
+    if (charge.error) {
+      res.status(402).json({ error: "رصيدك من الجواهر غير كافٍ لإتمام هذا الدرس (4 جواهر)" });
+      return;
+    }
+
+    res.json({ ok: true, charged: charge.charged, gemsBalance: charge.balanceAfter });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Internal error" });
   }

@@ -16,6 +16,9 @@ import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
 import { dedupeInflight, HttpError } from "../lib/inflight";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
+
+const QUIZ_GEN_COST_USD = 0.020; // 20 gems
 import { validateQuizHtml } from "../lib/validate-quiz-html";
 import {
   extractStageContent,
@@ -189,7 +192,8 @@ router.get("/v4/stage-quizzes", requireAuth, async (req, res): Promise<void> => 
 // ── AI auto-generate ──────────────────────────────────────────────────────────
 // Idempotent: returns cached quiz if one already exists for this stage.
 
-router.post("/v4/stage-quizzes/generate", requireAuth, async (req, res): Promise<void> => {
+router.post("/v4/stage-quizzes/generate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = getUserId(req)!;
   const { specialtySlug, levelIndex, stageIndex } = req.body as {
     specialtySlug?: string;
     levelIndex?: number;
@@ -206,7 +210,7 @@ router.post("/v4/stage-quizzes/generate", requireAuth, async (req, res): Promise
     const outcome = await dedupeInflight(
       `stage-quiz:${specialtySlug}:${li}:${si}`,
       async (): Promise<{ quizId: number; cached: boolean }> => {
-        // 1. Cached quiz → return immediately (shared globally, any student)
+        // 1. Cached quiz → return immediately (no charge — globally shared)
         const cached = await db.execute(
           sql`SELECT id FROM v4_stage_quizzes
               WHERE specialty_slug = ${specialtySlug}
@@ -217,7 +221,19 @@ router.post("/v4/stage-quizzes/generate", requireAuth, async (req, res): Promise
           return { quizId: Number(cached.rows[0].id), cached: true };
         }
 
-        // 2. Extract stage content
+        // 2. Charge 20 gems flat before AI generation (cache-miss path only)
+        const charge = await chargeV4Ai({
+          requestId: `quiz-gen:stage:${specialtySlug}:${li}:${si}:${userId}`,
+          userId,
+          subjectId: specialtySlug,
+          costUsd: QUIZ_GEN_COST_USD,
+          source: "v4_ai_quiz",
+        });
+        if (charge.error) {
+          throw new HttpError(503, "رصيدك من الجواهر غير كافٍ لتوليد الاختبار");
+        }
+
+        // 3. Extract stage content
         const stageContent = await extractStageContent(specialtySlug, li, si).catch((err: any) => {
           logger.error({ err: err?.message }, "stage-quiz generate: content extraction failed");
           throw new HttpError(500, "خطأ في استخراج محتوى المرحلة");
@@ -226,7 +242,7 @@ router.post("/v4/stage-quizzes/generate", requireAuth, async (req, res): Promise
           throw new HttpError(404, "المرحلة غير موجودة أو لا يوجد منهج منشور لهذا التخصص");
         }
 
-        // 3. Generate via AI (validates internally; throws on failure)
+        // 4. Generate via AI (validates internally; throws on failure)
         const htmlContent = await generateStageQuizHtml(stageContent);
 
         // 4. Save (upsert — race-safe)

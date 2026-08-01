@@ -10,7 +10,7 @@ import {
   Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
   Folder, FolderOpen, Trash2, FolderTree, Square, MoreVertical, FolderPlus,
   RefreshCw, Monitor, Smartphone, Maximize2, ExternalLink, Package,
-  HelpCircle, BookOpen, Lightbulb, ChevronRight, Zap, Shield, Info,
+  HelpCircle, BookOpen, Lightbulb, ChevronRight, Zap, Shield, Info, Gem,
 } from "lucide-react";
 
 type Member = {
@@ -564,6 +564,12 @@ export default function CodingRoom() {
   const [installedPkgs, setInstalledPkgs] = useState<string[]>([]);
   const [errorHint, setErrorHint] = useState<ErrorHint | null>(null);
   const [showRoomGuide, setShowRoomGuide] = useState(false);
+
+  // ── Gem billing ──────────────────────────────────────────────────────────────
+  const [showGemInfoModal, setShowGemInfoModal] = useState(false);
+  const gemInfoShownRef = useRef(false); // show only once per session
+  const gemBillingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [gemBalance, setGemBalance] = useState<number | null>(null);
   const [liveOutput, setLiveOutput] = useState("");
   const [inputLine, setInputLine] = useState("");
   const liveOutputRef = useRef("");
@@ -1122,6 +1128,37 @@ export default function CodingRoom() {
     return () => clearTimeout(t);
   }, [closingCountdown]);
 
+  // ── Gem billing: show info once on connect, then tick every 2 minutes ────────
+  useEffect(() => {
+    if (wsStatus !== "connected" || !connected) return;
+
+    // Show info modal once per session
+    if (!gemInfoShownRef.current) {
+      gemInfoShownRef.current = true;
+      setShowGemInfoModal(true);
+    }
+
+    // Start billing interval (every 2 minutes)
+    if (gemBillingIntervalRef.current) clearInterval(gemBillingIntervalRef.current);
+    gemBillingIntervalRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/coding-rooms/${roomId}/tick`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+        });
+        if (r.ok) {
+          const d = await r.json();
+          if (typeof d.gemsBalance === "number") setGemBalance(d.gemsBalance);
+        }
+      } catch {}
+    }, 120_000);
+
+    return () => {
+      if (gemBillingIntervalRef.current) clearInterval(gemBillingIntervalRef.current);
+    };
+  }, [wsStatus, connected, roomId]);
+
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current) return;
     if (!activeFile) return;
@@ -1589,6 +1626,22 @@ export default function CodingRoom() {
         </div>
 
         <div className="flex-1 hidden md:block" />
+
+        {/* Gem cost badge */}
+        <button
+          onClick={() => setShowGemInfoModal(true)}
+          title="تكلفة الغرفة"
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg shrink-0"
+          style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)", color: "rgba(165,180,252,0.8)" }}
+        >
+          <Gem className="w-3 h-3" />
+          <span className="text-[10px] font-bold">جوهرة/٢ دقيقة</span>
+          {gemBalance !== null && (
+            <span className="text-[10px] font-bold" style={{ color: gemBalance <= 5 ? "#f87171" : "rgba(165,180,252,0.6)" }}>
+              ({gemBalance})
+            </span>
+          )}
+        </button>
 
         <div className="hidden md:flex items-center gap-2 shrink-0">
           <button onClick={toggleMic}
@@ -2685,6 +2738,66 @@ export default function CodingRoom() {
                   فهمت، شكراً!
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Gem Info Modal ───────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showGemInfoModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(6px)", direction: "rtl" }}
+          >
+            <motion.div
+              initial={{ scale: 0.88, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 320, damping: 24 }}
+              className="rounded-3xl p-6 w-full max-w-sm flex flex-col gap-4"
+              style={{ background: "linear-gradient(145deg,#0d1020,#08091a)", border: "1px solid rgba(99,102,241,0.25)", boxShadow: "0 0 60px rgba(99,102,241,0.12), 0 20px 60px rgba(0,0,0,0.5)" }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)" }}>
+                  <Gem className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-black text-white text-sm">تنبيه: غرف البرمجة مدفوعة</p>
+                  <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>يُطبَّق الخصم تلقائياً أثناء وجودك</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
+                <Gem className="w-5 h-5 shrink-0" style={{ color: "#818cf8" }} />
+                <div>
+                  <p className="text-sm font-black" style={{ color: "#c7d2fe" }}>
+                    جوهرة واحدة كل <span style={{ color: "#818cf8" }}>دقيقتين
+                    </span>
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                    تُخصم من المادة ذات الرصيد الأعلى تلقائياً
+                  </p>
+                </div>
+              </div>
+
+              <ul className="space-y-1.5 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <li className="flex items-start gap-2"><span>•</span><span>الخصم يبدأ بعد ٢ دقيقة من دخول الغرفة</span></li>
+                <li className="flex items-start gap-2"><span>•</span><span>إذا انتهى رصيدك تبقى في الغرفة دون خصم</span></li>
+                <li className="flex items-start gap-2"><span>•</span><span>يظهر رصيدك المحدَّث في أعلى الصفحة</span></li>
+              </ul>
+
+              <button
+                onClick={() => setShowGemInfoModal(false)}
+                className="w-full py-3 rounded-xl font-black text-sm text-white"
+                style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", boxShadow: "0 4px 16px rgba(99,102,241,0.3)" }}
+              >
+                فهمت، ابدأ البرمجة!
+              </button>
             </motion.div>
           </motion.div>
         )}

@@ -16,6 +16,9 @@ import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
 import { dedupeInflight, HttpError } from "../lib/inflight";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
+
+const QUIZ_GEN_COST_USD = 0.020; // 20 gems
 import { validateQuizHtml } from "../lib/validate-quiz-html";
 import {
   extractLevelContent,
@@ -192,6 +195,7 @@ router.get("/v4/level-quizzes", requireAuth, async (req: Request, res: Response)
 // 30 questions (10 MCQ×5 + 10 T/F×3 + 10 Fill×2 = 100 pts), easy difficulty.
 
 router.post("/v4/level-quizzes/generate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = getUserId(req)!;
   const { specialtySlug, levelIndex } = req.body as {
     specialtySlug?: string;
     levelIndex?: number;
@@ -206,7 +210,7 @@ router.post("/v4/level-quizzes/generate", requireAuth, async (req: Request, res:
     const outcome = await dedupeInflight(
       `level-quiz:${specialtySlug}:${li}`,
       async (): Promise<{ quizId: number; cached: boolean }> => {
-        // 1. Cached quiz → return immediately (shared globally, any student)
+        // 1. Cached quiz → return immediately (no charge — globally shared)
         const cached = await db.execute(
           sql`SELECT id FROM v4_level_quizzes
               WHERE specialty_slug = ${specialtySlug} AND level_index = ${li}`
@@ -215,7 +219,19 @@ router.post("/v4/level-quizzes/generate", requireAuth, async (req: Request, res:
           return { quizId: Number(cached.rows[0].id), cached: true };
         }
 
-        // 2. Extract level content
+        // 2. Charge 20 gems flat before AI generation (cache-miss path only)
+        const charge = await chargeV4Ai({
+          requestId: `quiz-gen:level:${specialtySlug}:${li}:${userId}`,
+          userId,
+          subjectId: specialtySlug,
+          costUsd: QUIZ_GEN_COST_USD,
+          source: "v4_ai_quiz",
+        });
+        if (charge.error) {
+          throw new HttpError(503, "رصيدك من الجواهر غير كافٍ لتوليد الاختبار");
+        }
+
+        // 3. Extract level content
         const levelContent = await extractLevelContent(specialtySlug, li).catch((err: any) => {
           logger.error({ err: err?.message }, "level-quiz generate: content extraction failed");
           throw new HttpError(500, "خطأ في استخراج محتوى المستوى");
@@ -224,7 +240,7 @@ router.post("/v4/level-quizzes/generate", requireAuth, async (req: Request, res:
           throw new HttpError(404, "المستوى غير موجود أو لا يوجد منهج منشور لهذا التخصص");
         }
 
-        // 3. Generate via AI (validates internally; throws on failure)
+        // 4. Generate via AI (validates internally; throws on failure)
         const htmlContent = await generateLevelQuizHtml(levelContent);
 
         // 4. Save (upsert — race-safe)

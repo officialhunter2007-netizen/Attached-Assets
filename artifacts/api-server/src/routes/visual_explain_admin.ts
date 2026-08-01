@@ -20,6 +20,10 @@ import { eq, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sendVapidToAdmins } from "./push_notifications";
 import { sendExpoToAdmins } from "./expo_push_tokens";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
+
+// Flat cost for every visual-explain request (50 gems = $0.05)
+const VISUAL_EXPLAIN_COST_USD = 0.050;
 
 const router: IRouter = Router();
 
@@ -88,12 +92,26 @@ router.post("/student/visual-explain/request", async (req: any, res: any): Promi
   const userId = getUserId(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { messageText, subjectName = "", context } = req.body ?? {};
+  const { messageText, subjectName = "", context, specialtySlug = "" } = req.body ?? {};
   if (!messageText || typeof messageText !== "string") {
     res.status(400).json({ error: "messageText مطلوب" }); return;
   }
 
   try {
+    // ── Charge 50 gems before creating the request ────────────────────────
+    const subjectId = (specialtySlug || "platform").slice(0, 120);
+    const charge = await chargeV4Ai({
+      requestId: `visual-explain:${userId}:${Date.now()}`,
+      userId,
+      subjectId,
+      costUsd: VISUAL_EXPLAIN_COST_USD,
+      source: "v4_ai_visual",
+    });
+    if (charge.error) {
+      res.status(402).json({ error: "رصيدك من الجواهر غير كافٍ لطلب التوضيح البصري (50 جوهرة)" });
+      return;
+    }
+
     const [user] = await db.select({ displayName: usersTable.displayName, email: usersTable.email })
       .from(usersTable).where(eq(usersTable.id, userId));
     const studentName = user?.displayName ?? user?.email ?? "طالب";
