@@ -21,7 +21,7 @@ const ULIMIT_PREFIX = "ulimit -t 30 -f 10240 2>/dev/null";
 
 // ── Concurrent execution cap ──────────────────────────────────────────────────
 let activeWsExecutions = 0;
-const MAX_WS_CONCURRENT = 80;   // hard ceiling across all students
+const MAX_WS_CONCURRENT = 100;   // hard ceiling across all students
 
 // ── Per-process wall-clock timeout ───────────────────────────────────────────
 const WS_EXEC_TIMEOUT_MS = 30_000;  // 30 seconds
@@ -264,7 +264,14 @@ export function initSoloRunWss(server: Server) {
             }
             case "java": {
               const classMatch = entryContent.match(/public\s+class\s+(\w+)/);
-              const mainClass = classMatch?.[1] ?? path.basename(entryFile, ".java");
+              const detectedClass = classMatch?.[1] ?? null;
+              let javaEntryPath = entryAbs;
+              let mainClass = path.basename(entryFile, ".java");
+              if (detectedClass && detectedClass !== mainClass) {
+                const newPath = path.join(tmpDir, `${detectedClass}.java`);
+                try { fs.renameSync(entryAbs, newPath); javaEntryPath = newPath; } catch {}
+                mainClass = detectedClass;
+              }
               cmd = "bash"; args = ["-c",
                 `${ULIMIT_PREFIX}; cd ${safeDir} && javac -cp ${safeCP} *.java 2>&1 && java -cp ${safeCP} ${mainClass}`];
               break;

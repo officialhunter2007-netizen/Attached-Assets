@@ -66,6 +66,19 @@ services:
     volumes:
       # تخزين دائم للصور التوضيحية المولّدة، لا يُمسح عند إعادة البناء.
       - teacher_images:/data/teacher-images
+      # تخزين دائم للمكتبات المثبّتة (pip / npm / maven) في غرف البرمجة
+      - nukhba_pylib:/home/runner/workspace/.pythonlibs
+      - nukhba_jslib:/home/runner/workspace/.nodelibs
+      - nukhba_javalib:/home/runner/workspace/.javalib
+    # حدود الموارد للإنتاج (100+ طالب متزامن)
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+          memory: 5g
+        reservations:
+          cpus: '2'
+          memory: 2g
 
   # ─── Nginx (الواجهة الأمامية + reverse proxy) ────────────────────
   nginx:
@@ -81,6 +94,14 @@ services:
     volumes:
       - certbot_certs:/etc/letsencrypt:ro
       - certbot_webroot:/var/www/certbot:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512m
+        reservations:
+          cpus: '0.5'
+          memory: 256m
 
   # ─── Certbot (تجديد شهادة SSL تلقائياً) ──────────────────────────
   certbot:
@@ -95,3 +116,6 @@ volumes:
   certbot_certs:
   certbot_webroot:
   teacher_images:
+  nukhba_pylib:
+  nukhba_jslib:
+  nukhba_javalib:

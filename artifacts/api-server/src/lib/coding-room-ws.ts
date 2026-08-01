@@ -81,7 +81,60 @@ type ProcessEntry = {
 
 const activeProcesses = new Map<number, ProcessEntry>();
 
-const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+const INTERACTIVE_LANGS = new Set(["python", "javascript", "typescript", "bash", "c", "cpp", "java"]);
+
+const ULIMIT_PREFIX = "ulimit -t 30 -f 10240 2>/dev/null";
+const SHARED_JAVA_DIR = "/home/runner/workspace/.javalib";
+
+function detectCLinkerFlags(code: string): string[] {
+  const flags = new Set<string>();
+  const includes = [...code.matchAll(/#\s*include\s*[<"]([^>"]+)[>"]/g)]
+    .map(m => m[1].toLowerCase().split("/")[0]);
+  for (const top of includes) {
+    if (top === "zlib.h")                          flags.add("-lz");
+    if (top === "png.h")                           flags.add("-lpng");
+    if (top === "bzlib.h")                         flags.add("-lbz2");
+    if (top === "gmp.h")                           flags.add("-lgmp");
+    if (top === "gmpxx.h")                         { flags.add("-lgmp"); flags.add("-lgmpxx"); }
+    if (top === "sqlite3.h")                       flags.add("-lsqlite3");
+    if (top === "curl")                            flags.add("-lcurl");
+    if (top === "openssl")                         { flags.add("-lssl"); flags.add("-lcrypto"); }
+    if (top === "ncurses.h" || top === "curses.h") flags.add("-lncurses");
+    if (top === "readline")                        flags.add("-lreadline");
+    if (top === "ft2build.h" || top === "freetype2") flags.add("-lfreetype");
+    if (top === "uuid" || top === "uuid.h")        flags.add("-luuid");
+  }
+  return Array.from(flags);
+}
+
+async function ensureMavenJarsWs(
+  code: string,
+  onProgress: (msg: string) => void,
+): Promise<void> {
+  const coords = [...code.matchAll(/\/\/\s*@maven\s+([^\s]+)/g)].map(m => m[1]);
+  if (!coords.length) return;
+  try { fs.mkdirSync(SHARED_JAVA_DIR, { recursive: true }); } catch {}
+  for (const coord of coords) {
+    const parts = coord.split(":");
+    if (parts.length < 3) continue;
+    const [group, artifact, version] = parts;
+    const jarName = `${artifact}-${version}.jar`;
+    const jarPath = path.join(SHARED_JAVA_DIR, jarName);
+    if (fs.existsSync(jarPath)) continue;
+    onProgress(`📦 تنزيل ${jarName} من Maven Central...\n`);
+    const groupPath = group.replace(/\./g, "/");
+    const url = `https://repo1.maven.org/maven2/${groupPath}/${artifact}/${version}/${jarName}`;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) } as any);
+      if (!resp.ok) { onProgress(`❌ فشل تنزيل ${jarName} (${resp.status})\n`); continue; }
+      const buf = Buffer.from(await resp.arrayBuffer());
+      fs.writeFileSync(jarPath, buf);
+      onProgress(`✅ تم تنزيل ${jarName}\n`);
+    } catch (e: any) {
+      onProgress(`❌ خطأ في تنزيل ${jarName}: ${e.message}\n`);
+    }
+  }
+}
 const VALID_PKG_NAME = /^[a-zA-Z0-9]([a-zA-Z0-9\-_.]*[a-zA-Z0-9])?(\[[\w,]+\])?$/;
 const SHARED_PYLIB_DIR = process.env.NUKHBA_PYLIB_DIR
   ?? (() => {
@@ -155,6 +208,21 @@ function isValidFilePath(p: string): boolean {
     if (!seg || seg === "." || seg === "..") return false;
   }
   return true;
+}
+
+const EXT_LANG: Record<string, string> = {
+  js: "javascript", jsx: "javascript",
+  ts: "typescript", tsx: "typescript",
+  py: "python", html: "html", css: "css",
+  java: "java", cpp: "cpp", c: "c", h: "c",
+  rs: "rust", go: "go", php: "php",
+  rb: "ruby", swift: "swift", kt: "kotlin",
+};
+
+function inferLanguage(filePath: string): string {
+  const dot = filePath.lastIndexOf(".");
+  if (dot < 0) return "";
+  return EXT_LANG[filePath.slice(dot + 1).toLowerCase()] ?? "";
 }
 
 function broadcast(roomId: number, msg: object, excludeUserId?: number) {
@@ -355,8 +423,8 @@ async function handleMessage(client: WsClient, raw: string) {
         return;
       }
       await db.execute(
-        sql`INSERT INTO coding_room_files (room_id, file_path, content, created_by_user_id)
-            VALUES (${client.roomId}, ${filePath}, ${newContent}, ${client.userId})
+        sql`INSERT INTO coding_room_files (room_id, file_path, content, language, created_by_user_id)
+            VALUES (${client.roomId}, ${filePath}, ${newContent}, ${inferLanguage(filePath)}, ${client.userId})
             ON CONFLICT (room_id, file_path) DO NOTHING`
       );
       broadcastJoined(client.roomId, {
@@ -740,24 +808,69 @@ async function handleMessage(client: WsClient, raw: string) {
       let cmd: string;
       let args: string[];
       const entryAbs = path.join(tmpDir, entryFile);
+      const safeDir = JSON.stringify(tmpDir);
+
+      // Read entry file content for auto-detection (C/C++ linker flags, Java class, Maven deps)
+      let entryContent = "";
+      try { entryContent = fs.readFileSync(entryAbs, "utf8"); } catch {}
 
       switch (language) {
         case "python":
-          cmd = "python3"; args = ["-u", entryAbs]; break;
+          cmd = "bash"; args = ["-c",
+            `${ULIMIT_PREFIX}; exec python3 -u ${JSON.stringify(entryAbs)}`]; break;
         case "javascript":
-          cmd = "node"; args = [entryAbs]; break;
+        case "typescript":
+          cmd = "bash"; args = ["-c",
+            `${ULIMIT_PREFIX}; exec node ${JSON.stringify(entryAbs)}`]; break;
         case "bash":
-          cmd = "bash"; args = [entryAbs]; break;
-        case "c":
-          cmd = "bash"; args = ["-c", `gcc *.c -o _prog -lm -std=c11 2>&1 && ./_prog`]; break;
-        case "cpp":
-          cmd = "bash"; args = ["-c", `g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -lm -std=c++17 2>&1 && ./_prog`]; break;
+          cmd = "bash"; args = ["-c",
+            `${ULIMIT_PREFIX}; exec bash ${JSON.stringify(entryAbs)}`]; break;
+        case "c": {
+          const linkerFlags = detectCLinkerFlags(entryContent).join(" ");
+          const extraStr = linkerFlags ? ` ${linkerFlags}` : "";
+          cmd = "bash"; args = ["-c",
+            `${ULIMIT_PREFIX}; cd ${safeDir} && gcc *.c -o _prog -std=gnu11 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
+          break;
+        }
+        case "cpp": {
+          const linkerFlags = detectCLinkerFlags(entryContent).join(" ");
+          const extraStr = linkerFlags ? ` ${linkerFlags}` : "";
+          cmd = "bash"; args = ["-c",
+            `${ULIMIT_PREFIX}; cd ${safeDir} && g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -std=gnu++17 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
+          break;
+        }
+        case "java": {
+          // Extract public class name and rename file if needed (Java requires filename = public class)
+          const classMatch = entryContent.match(/public\s+class\s+(\w+)/);
+          const detectedClass = classMatch?.[1] ?? null;
+          let javaEntryPath = entryAbs;
+          let mainClass = path.basename(entryFile, ".java");
+          if (detectedClass && detectedClass !== mainClass) {
+            const newPath = path.join(tmpDir, `${detectedClass}.java`);
+            try {
+              fs.renameSync(entryAbs, newPath);
+              javaEntryPath = newPath;
+            } catch { /* keep original if rename fails */ }
+            mainClass = detectedClass;
+          }
+          const javaCP = `"${SHARED_JAVA_DIR}/*:."`;
+          cmd = "bash"; args = ["-c",
+            `${ULIMIT_PREFIX}; cd ${safeDir} && javac -cp ${javaCP} *.java 2>&1 && java -cp ${javaCP} ${mainClass}`];
+          break;
+        }
         default:
           try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
           return;
       }
 
-      const spawnEnv: NodeJS.ProcessEnv = language === "javascript"
+      // Download Maven JARs for Java before spawning the compiler
+      if (language === "java") {
+        await ensureMavenJarsWs(entryContent, (line) => {
+          broadcastJoined(client.roomId, { type: "process_output", data: line });
+        });
+      }
+
+      const spawnEnv: NodeJS.ProcessEnv = language === "javascript" || language === "typescript"
         ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
         : language === "python"
         ? { ...process.env, PYTHONPATH: [SHARED_PYLIB_DIR, process.env.PYTHONPATH].filter(Boolean).join(":") }
@@ -884,7 +997,7 @@ async function handleMessage(client: WsClient, raw: string) {
         return;
       }
 
-      if (installLang === "javascript") {
+      if (installLang === "javascript" || installLang === "typescript") {
         for (const p of pkgList) {
           if (!VALID_NPM_PKG_NAME.test(p) || p.length > 100) {
             sendTo(client, { type: "process_output", data: `❌ اسم الحزمة غير صحيح: ${p}\n` });
@@ -923,6 +1036,46 @@ async function handleMessage(client: WsClient, raw: string) {
           broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ في تنزيل الحزمة: ${err.message}\n` });
           broadcastJoined(client.roomId, { type: "install_done", success: false });
         });
+        return;
+      }
+
+      if (installLang === "java") {
+        broadcastJoined(client.roomId, { type: "process_output", data: `📦 جاري تنزيل JARs: ${pkgList.join(", ")}...\n` });
+        try { fs.mkdirSync(SHARED_JAVA_DIR, { recursive: true }); } catch {}
+        let successCount = 0;
+        for (const coord of pkgList) {
+          const parts = coord.split(":");
+          if (parts.length < 3) {
+            broadcastJoined(client.roomId, { type: "process_output", data: `❌ صيغة خاطئة: ${coord} — استخدم group:artifact:version\n` });
+            continue;
+          }
+          const [group, artifact, version] = parts;
+          const jarName = `${artifact}-${version}.jar`;
+          const jarPath = path.join(SHARED_JAVA_DIR, jarName);
+          if (fs.existsSync(jarPath)) {
+            broadcastJoined(client.roomId, { type: "process_output", data: `✅ ${jarName} موجود مسبقاً\n` });
+            successCount++;
+            continue;
+          }
+          const groupPath = group.replace(/\./g, "/");
+          const url = `https://repo1.maven.org/maven2/${groupPath}/${artifact}/${version}/${jarName}`;
+          try {
+            broadcastJoined(client.roomId, { type: "process_output", data: `📦 تنزيل ${jarName}...\n` });
+            const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) } as any);
+            if (!resp.ok) {
+              broadcastJoined(client.roomId, { type: "process_output", data: `❌ فشل تنزيل ${jarName} (${resp.status})\n` });
+              continue;
+            }
+            const buf = Buffer.from(await resp.arrayBuffer());
+            fs.writeFileSync(jarPath, buf);
+            broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم تنزيل ${jarName}\n` });
+            successCount++;
+          } catch (e: any) {
+            broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ: ${e.message}\n` });
+          }
+        }
+        activeInstalls.delete(client.roomId);
+        broadcastJoined(client.roomId, { type: "install_done", success: successCount > 0, packages: pkgList });
         return;
       }
 

@@ -1151,6 +1151,62 @@ function EditorStatusBar({
 }
 
 // ── Inline "شرح الخطأ" component ─────────────────────────────────────────────
+
+type ErrorHint = {
+  severity: "error" | "warning" | "info";
+  title: string;
+  explanation: string;
+  suggestion: string;
+  pkgName?: string;
+};
+
+function analyzeOutput(output: string, lang: string): ErrorHint | null {
+  const o = output;
+  if (lang === "python" || o.includes("Traceback (most recent call last)")) {
+    const m1 = o.match(/ModuleNotFoundError: No module named '([^']+)'/);
+    if (m1) {
+      const pkg = m1[1].split(".")[0];
+      return { severity: "error", title: `مكتبة «${pkg}» غير مثبتة`, explanation: `البرنامج يحاول استيراد مكتبة «${pkg}» لكنها غير موجودة في البيئة الحالية.`, suggestion: `اضغط زر «تنزيل مكتبة 📦» لتنزيل: ${pkg}`, pkgName: pkg };
+    }
+    const m2 = o.match(/ImportError: cannot import name '([^']+)' from '([^']+)'/);
+    if (m2) return { severity: "error", title: `خطأ في الاستيراد`, explanation: `لا يمكن استيراد «${m2[1]}» من مكتبة «${m2[2]}». قد يكون الاسم خاطئاً أو المكتبة قديمة.`, suggestion: `راجع توثيق مكتبة «${m2[2]}» للتأكد من الاسم الصحيح.` };
+    if (o.includes("SyntaxError:")) { const lineMatch = o.match(/line (\d+)/); return { severity: "error", title: `خطأ في الصياغة${lineMatch ? ` — السطر ${lineMatch[1]}` : ""}`, explanation: `يوجد خطأ في كتابة الكود. غالباً قوس مفقود أو نقطتان مفقودتان أو علامة اقتباس غير مكتملة.`, suggestion: `راجع${lineMatch ? ` السطر ${lineMatch[1]} و` : ""} الأسطر المجاورة بحثاً عن أقواس أو علامات غير مكتملة.` }; }
+    if (o.includes("IndentationError:")) return { severity: "error", title: `خطأ في المسافات البادئة`, explanation: `Python يعتمد على المسافات البادئة لتحديد بنية الكود. هناك تضارب في المسافات.`, suggestion: `استخدم نفس عدد المسافات في كل مستوى ولا تخلط بين Spaces وTabs.` };
+    const m3 = o.match(/NameError: name '([^']+)' is not defined/);
+    if (m3) return { severity: "error", title: `«${m3[1]}» غير معرَّف`, explanation: `البرنامج يحاول استخدام «${m3[1]}» لكنه لم يُعرَّف بعد أو يوجد خطأ إملائي.`, suggestion: `تحقق من إملاء «${m3[1]}» وتأكد من تعريفه قبل استخدامه.` };
+    if (o.includes("TypeError:")) { const d = o.match(/TypeError: (.+)/)?.[1] ?? ""; return { severity: "error", title: `خطأ في نوع البيانات`, explanation: `تعارض في أنواع البيانات: ${d.slice(0, 100)}.`, suggestion: `استخدم type() للتحقق من نوع المتغيرات قبل تمريرها للدوال.` }; }
+    if (o.includes("IndexError:")) return { severity: "error", title: `الفهرس خارج النطاق`, explanation: `تحاول الوصول لعنصر بفهرس أكبر من حجم القائمة.`, suggestion: `تحقق من حجم القائمة بـ len() قبل الوصول بالفهرس، أو استخدم حلقة for مباشرةً.` };
+    const m5 = o.match(/KeyError: (.+)/);
+    if (m5) return { severity: "error", title: `المفتاح ${m5[1].trim()} غير موجود`, explanation: `حاولت الوصول لمفتاح غير موجود في القاموس.`, suggestion: `استخدم dict.get(key, default) بدلاً من dict[key]، أو تحقق: if key in dict.` };
+    if (o.includes("FileNotFoundError:")) return { severity: "error", title: `الملف غير موجود`, explanation: `البرنامج يحاول فتح ملف لا يوجد في المسار المحدد.`, suggestion: `في المحرر الملفات موجودة في نفس مجلد العمل. تحقق من الاسم والمسار.` };
+    if (o.includes("ZeroDivisionError:")) return { severity: "error", title: `القسمة على صفر`, explanation: `البرنامج يقسم على صفر وهو غير مسموح به رياضياً.`, suggestion: `أضف تحققاً: if divisor != 0: result = a / divisor` };
+    if (o.includes("RecursionError:")) return { severity: "error", title: `تكرار لا نهائي`, explanation: `الدالة تستدعي نفسها بلا توقف — تنقصك حالة الإيقاف (base case).`, suggestion: `أضف شرط توقف للدالة التكرارية يوقف الاستدعاء عند وصول الإدخال لحالة محددة.` };
+    if (o.match(/ConnectionRefusedError|ConnectionError|urllib\.error|requests\.exceptions|socket\.gaierror/)) return { severity: "warning", title: `لا يمكن الاتصال بالشبكة`, explanation: `بيئة المحرر لا تسمح بالاتصال بالإنترنت الخارجي.`, suggestion: `اختبر الكود ببيانات محلية أو ملفات بدلاً من جلب البيانات من الإنترنت.` };
+    if (o.includes("Traceback (most recent call last)")) return { severity: "error", title: `خطأ في تشغيل البرنامج`, explanation: `توقف البرنامج بسبب خطأ. اقرأ آخر سطرين في الناتج لفهم نوع الخطأ تحديداً.`, suggestion: `ابحث عن السطر الأخير الذي يبدأ بـ "Error:" — هو الوصف الأساسي للخطأ.` };
+  }
+  if (lang === "javascript" || lang === "typescript") {
+    const m6 = o.match(/Cannot find module '([^']+)'/);
+    if (m6) { const pkg = m6[1]; const isLocal = pkg.startsWith("."); return { severity: "error", title: isLocal ? `الملف «${pkg}» غير موجود` : `حزمة «${pkg}» غير مثبتة`, explanation: isLocal ? `الملف المستورد «${pkg}» غير موجود في المسار المحدد.` : `البرنامج يحاول استيراد «${pkg}» لكنها غير مثبتة.`, suggestion: isLocal ? `تحقق من المسار الصحيح للملف.` : `اضغط «تنزيل مكتبة 📦» واكتب: ${pkg}`, pkgName: isLocal ? undefined : pkg }; }
+    if (o.match(/ReferenceError: ([^\s]+) is not defined/)) return { severity: "error", title: `متغير غير معرَّف`, explanation: `المتغير أو الدالة يُستخدم قبل تعريفه.`, suggestion: `أعلن عن المتغير بـ const أو let قبل استخدامه.` };
+    if (o.match(/TypeError: .+ is not a function/)) return { severity: "error", title: `ليست دالة`, explanation: `تحاول استدعاء شيء كدالة لكنه ليس كذلك.`, suggestion: `تحقق من نوع المتغير: console.log(typeof variable) قبل استدعائه.` };
+    if (o.includes("SyntaxError:")) return { severity: "error", title: `خطأ في الصياغة`, explanation: `هناك خطأ في بنية الكود.`, suggestion: `راجع الأسطر حول الخطأ المذكور بحثاً عن أقواس غير مكتملة.` };
+  }
+  if (lang === "java") {
+    if (o.match(/class (\w+) is public/)) return { severity: "error", title: `اسم الملف لا يطابق اسم الفئة`, explanation: `في Java يجب أن يكون اسم الملف مطابقاً لاسم الـ public class.`, suggestion: `تأكد من أن اسم الملف (بدون .java) يطابق تماماً اسم الفئة public class.` };
+    const jm = o.match(/package ([\w.]+) does not exist/);
+    if (jm) return { severity: "error", title: `الحزمة «${jm[1]}» غير موجودة`, explanation: `لم يتم العثور على الحزمة المطلوبة.`, suggestion: `أضف تعليق // @maven group:artifact:version لتنزيل المكتبة من Maven Central.` };
+    if (o.match(/cannot find symbol/) && !o.match(/class/)) return { severity: "error", title: `رموز غير معرفة`, explanation: `يوجد متغيرات أو دوال غير معرفة في الكود.`, suggestion: `تحقق من الإملاء وتأكد من تعريف جميع المتغيرات قبل الاستخدام.` };
+  }
+  if (lang === "c" || lang === "cpp") {
+    if (o.match(/error: '([^']+)' was not declared in this scope/)) return { severity: "error", title: `غير معرَّف في هذا النطاق`, explanation: `المتغير أو الدالة يُستخدم قبل تعريفه.`, suggestion: `تأكد من تضمين المكتبة (#include) المناسبة.` };
+    if (o.match(/undefined reference to/)) return { severity: "error", title: `مرجع غير محدود`, explanation: `المترجم لا يجد تعريف دالة. غالباً مكتبة غير مرتبطة.`, suggestion: `تأكد من flags الرابط: -lm للمكتبة الرياضية، -lpthread للخيوط.` };
+    if (o.includes("Segmentation fault")) return { severity: "error", title: `خطأ في الذاكرة`, explanation: `البرنامج حاول الوصول لمنطقة ذاكرة غير مسموح بها.`, suggestion: `تحقق من عدم تجاوز حدود المصفوفات وهيئ المؤشرات قبل الاستخدام.` };
+    if (o.match(/fatal error: (.+): No such file or directory/)) return { severity: "error", title: `ملف الرأس غير موجود`, explanation: `المكتبة التي تحاول تضمينها غير متاحة.`, suggestion: `المكتبات المتاحة: stdio.h, stdlib.h, string.h, math.h, time.h, stdbool.h, zlib.h, sqlite3.h, gmp.h, png.h, curl/curl.h, openssl/bio.h, ncurses.h, readline/readline.h, uuid/uuid.h, ft2build.h.` };
+  }
+  if (o.match(/\bKilled\b|killed by signal|MemoryError/i)) return { severity: "warning", title: `البرنامج استهلك موارد كثيرة`, explanation: `البرنامج استهلك ذاكرة كبيرة أو دخل في حلقة لا نهائية.`, suggestion: `تحقق من عدم وجود حلقات لا نهائية. عالج البيانات الضخمة على دفعات.` };
+  return null;
+}
+
 function ExplainErrorButton({ code, language, error }: { code: string; language: string; error: string }) {
   const [loading, setLoading] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
@@ -1244,6 +1300,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
   const [openTabs, setOpenTabs] = useState<Set<string>>(() => new Set([initFiles()[0]?.id || "main"]));
   const [output, setOutput] = useState<string | null>(null);
   const [outputType, setOutputType] = useState<"success" | "error">("success");
+  const [errorHint, setErrorHint] = useState<ErrorHint | null>(null);
   const [running, setRunning] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -1842,6 +1899,8 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
           liveOutputRef.current = next;
           setLiveOutput(next);
           setOutput(next);
+          const lang = activeFileRef.current?.language ?? "";
+          setErrorHint(analyzeOutput(next, lang));
         } else if (msg.type === "install_done") {
           setInstalling(false);
           if (msg.success && Array.isArray(msg.packages)) {
@@ -1879,7 +1938,10 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
             const hasError = data.exitCode !== 0 || (!data.output && data.error);
             setOutputType(hasError ? "error" : "success");
             const combined = (data.output || "") + (data.error ? `\n${data.error}` : "");
-            setOutput(data.output ? combined : (data.error || "لا يوجد إخراج"));
+            const finalOutput = data.output ? combined : (data.error || "لا يوجد إخراج");
+            setOutput(finalOutput);
+            const lang = activeFileRef.current?.language ?? "";
+            setErrorHint(analyzeOutput(finalOutput, lang));
           } catch {
             setOutputType("error");
             setOutput("تعذّر الاتصال بالخادم — تأكد من تسجيل الدخول وحاول مجدداً");
@@ -1929,7 +1991,10 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       const hasError = data.exitCode !== 0 || (!data.output && data.error);
       setOutputType(hasError ? "error" : "success");
       const combined = (data.output || "") + (data.error ? `\n${data.error}` : "");
-      setOutput(data.output ? combined : (data.error || "لا يوجد إخراج"));
+      const finalOutput = data.output ? combined : (data.error || "لا يوجد إخراج");
+      setOutput(finalOutput);
+      const lang = activeFileRef.current?.language ?? "";
+      setErrorHint(analyzeOutput(finalOutput, lang));
       if (hasError && !stdin.trim()) {
         const errText = (data.output || "") + (data.error || "");
         if (/EOF when reading|EOFError|StdinRead|input\(\)/i.test(errText)) {
@@ -3389,6 +3454,27 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                       <span className="text-[#6e6a86]">$ {activeFile?.name}{"\n"}</span>
                       {output}
                     </pre>
+                    {errorHint && (
+                      <div className="mt-3 rounded-xl overflow-hidden" style={{ border: `1px solid ${errorHint.severity === "error" ? "rgba(239,68,68,0.3)" : errorHint.severity === "warning" ? "rgba(245,158,11,0.3)" : "rgba(96,165,250,0.3)"}`, background: errorHint.severity === "error" ? "rgba(239,68,68,0.06)" : errorHint.severity === "warning" ? "rgba(245,158,11,0.06)" : "rgba(96,165,250,0.06)" }}>
+                        <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderColor: errorHint.severity === "error" ? "rgba(239,68,68,0.15)" : errorHint.severity === "warning" ? "rgba(245,158,11,0.15)" : "rgba(96,165,250,0.15)" }}>
+                          <span className="text-xs font-black flex-1" style={{ color: errorHint.severity === "error" ? "#F87171" : errorHint.severity === "warning" ? "#FCD34D" : "#93C5FD" }}>{errorHint.title}</span>
+                          <button onClick={() => setErrorHint(null)} className="w-5 h-5 flex items-center justify-center rounded text-white/30 hover:text-white/60">✕</button>
+                        </div>
+                        <div className="px-3 py-2 space-y-1.5">
+                          <p className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.7)" }}>{errorHint.explanation}</p>
+                          <p className="text-[11px] leading-relaxed" style={{ color: "rgba(52,211,153,0.9)" }}>{errorHint.suggestion}</p>
+                          {errorHint.pkgName && (
+                            <button
+                              onClick={() => { setInstallInput(errorHint.pkgName!); setShowInstallInput(true); setErrorHint(null); }}
+                              className="mt-1 text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all"
+                              style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.35)", color: "#34D399" }}
+                            >
+                              📦 تنزيل «{errorHint.pkgName}» الآن
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : null}
               </div>

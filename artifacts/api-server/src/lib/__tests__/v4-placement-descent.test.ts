@@ -33,6 +33,7 @@ import {
   type PlacementResult,
 } from "../v4-path-engine.js";
 import type { V4PlacementTestQuestion } from "@workspace/db";
+type AnyQ = { id: number; prompt: string; kind: string; choices: unknown; correctIndex: number | null; difficulty: number; targetLevelIndex: number; targetStageCode: string | null; targetUnitCode: string | null };
 
 // ── synthetic-specialty builders ───────────────────────────────────────────
 /** Rebuild the level→stage→unit tree from lesson codes exactly the way
@@ -137,7 +138,7 @@ function levelOnlyQuestions(): V4PlacementTestQuestion[] {
 function simulate(
   resolved: ResolvedSpecialty,
   questions: V4PlacementTestQuestion[],
-  isCorrect: (q: V4PlacementTestQuestion) => boolean,
+  isCorrect: (q: AnyQ) => boolean,
 ): PlacementResult {
   const probes: PlacementProbe[] = [];
   for (let i = 0; i < 200; i++) {

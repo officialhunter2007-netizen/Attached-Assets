@@ -44,6 +44,21 @@ RUN apk add --no-cache \
     bash \
     && ln -sf python3 /usr/bin/python
 
+# إنشاء مجلدات المكتبات المشتركة (pip + npm + maven)
+RUN mkdir -p /home/runner/workspace/.pythonlibs \
+    /home/runner/workspace/.nodelibs \
+    /home/runner/workspace/.javalib \
+    && PY_VER=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')") \
+    && mkdir -p "/home/runner/workspace/.pythonlibs/lib/python${PY_VER}/site-packages"
+
+# تثبيت المكتبات الشائعة مُسبقاً لتجربة فورية للطالب
+RUN PY_VER=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')") \
+    && python3 -m pip install --target "/home/runner/workspace/.pythonlibs/lib/python${PY_VER}/site-packages" \
+    numpy pandas matplotlib requests flask fastapi \
+    pillow beautifulsoup4 openpyxl seaborn scipy sympy \
+    && npm install --prefix /home/runner/workspace/.nodelibs \
+    axios lodash moment express react vue chart.js three uuid
+
 WORKDIR /app
 
 # نسخ الملفات المبنية فقط (بدون node_modules أو المصدر)
@@ -51,4 +66,4 @@ COPY --from=builder /app/artifacts/api-server/dist/ ./dist/
 
 EXPOSE 8080
 
-CMD ["node", "--dns-result-order=ipv4first", "--enable-source-maps", "./dist/index.mjs"]
+CMD ["node", "--dns-result-order=ipv4first", "--enable-source-maps", "--max-old-space-size=4096", "./dist/index.mjs"]

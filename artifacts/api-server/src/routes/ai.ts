@@ -7964,7 +7964,7 @@ ${recentTerminal || "(لا مخرجات بعد)"}
 // ── Concurrent execution cap ──────────────────────────────────────────────────
 // Prevents thousands of simultaneous subprocesses from overwhelming the server.
 let activeHttpExecutions = 0;
-const MAX_HTTP_CONCURRENT = 40;   // max simultaneous HTTP code-runs
+const MAX_HTTP_CONCURRENT = 60;   // max simultaneous HTTP code-runs
 
 // Shared directory for Java JARs downloaded via @maven comments
 const SHARED_JAVA_DIR = "/home/runner/workspace/.javalib";
@@ -8489,6 +8489,50 @@ router.post("/ai/explain-code", async (req: any, res: any): Promise<any> => {
     console.error("[explain-code] error:", err?.message || err);
     return res.status(500).json({ error: "تعذّر توليد الشرح حالياً، حاول مرة أخرى بعد قليل" });
   }
+});
+
+// ── Admin: إدارة إساءة استخدام المعلّم الذكي ──────────────────────────────
+import { getAbuseList, resetTeachAbuse, getTeachAbuseState } from "../lib/teach-abuse-guard";
+
+async function requireAdmin(req: any, res: any, next: any) {
+  const uid = req.session?.userId ?? req.userId;
+  if (!uid) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const row = await db.execute(sql`SELECT role FROM users WHERE id = ${uid} LIMIT 1`);
+  if (!row.rows.length || (row.rows[0] as any).role !== "admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  next();
+}
+
+// GET /api/admin/teach-abuse — قائمة الطلاب المشبوهين
+router.get("/admin/teach-abuse", requireAdmin, async (_req: any, res: any) => {
+  return res.json({ students: getAbuseList() });
+});
+
+// POST /api/admin/teach-abuse/reset — إعادة تفعيل طالب محظور
+router.post("/admin/teach-abuse/reset", requireAdmin, async (req: any, res: any) => {
+  const uid = Number(req.body?.userId);
+  if (!uid || isNaN(uid)) return res.status(400).json({ error: "userId required" });
+  resetTeachAbuse(uid);
+  return res.json({ ok: true });
+});
+
+// GET /api/admin/teach-abuse/:userId — تفاصيل طالب
+router.get("/admin/teach-abuse/:userId", requireAdmin, async (req: any, res: any) => {
+  const uid = Number(req.params.userId);
+  if (!uid || isNaN(uid)) return res.status(400).json({ error: "invalid userId" });
+  const st = getTeachAbuseState(uid);
+  if (!st) return res.json({ found: false });
+  const rpm = st.timestamps.filter(t => t > Date.now() - 60_000).length;
+  return res.json({
+    found: true,
+    userId: uid,
+    rpm,
+    totalRecent: st.timestamps.length,
+    blocked: st.cooldownUntil > Date.now(),
+    cooldownUntil: st.cooldownUntil || null,
+  });
 });
 
 export default router;

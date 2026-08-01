@@ -4,7 +4,11 @@ module.exports = {
     script: "./artifacts/api-server/dist/index.mjs",
     cwd: "/root/nukhba/Attached-Assets",
     interpreter: "node",
-    interpreter_args: "--enable-source-maps",
+    interpreter_args: "--enable-source-maps --max-old-space-size=4096",
+    max_memory_restart: "4G",
+    autorestart: true,
+    max_restarts: 10,
+    restart_delay: 5000,
     env: {
       NODE_ENV: "production",
       PORT: "8080",

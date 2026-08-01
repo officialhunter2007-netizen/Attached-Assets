@@ -61,7 +61,7 @@ function getMonacoLang(filePath: string) {
   return EXT_TO_LANG[ext] ?? "plaintext";
 }
 
-const SERVER_INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+const SERVER_INTERACTIVE_LANGS = new Set(["python", "javascript", "typescript", "bash", "c", "cpp", "java"]);
 
 const RUN_LANG_MAP: Record<string, string> = {
   py: "python",
@@ -1697,13 +1697,13 @@ export default function CodingRoom() {
             </button>
           ) : null}
 
-          {canRun && (activeFileLang === "python" || activeFileLang === "javascript") && (
+          {canRun && (activeFileLang === "python" || activeFileLang === "javascript" || activeFileLang === "typescript" || activeFileLang === "java") && (
             <button
               onClick={() => setShowInstallInput(v => !v)}
               disabled={installing}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
               style={{ background: showInstallInput ? "rgba(16,185,129,0.2)" : "rgba(16,185,129,0.1)", border: `1px solid ${showInstallInput ? "rgba(16,185,129,0.5)" : "rgba(16,185,129,0.3)"}`, color: "#34D399" }}
-              title={activeFileLang === "javascript" ? "تنزيل حزمة npm" : "تنزيل مكتبة Python"}
+              title={activeFileLang === "java" ? "تنزيل مكتبة Maven (group:artifact:version)" : activeFileLang === "javascript" || activeFileLang === "typescript" ? "تنزيل حزمة npm" : "تنزيل مكتبة Python"}
             >
               {installing ? (
                 <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
@@ -1807,7 +1807,7 @@ export default function CodingRoom() {
         )}
       </header>
 
-      {showInstallInput && canRun && (activeFileLang === "python" || activeFileLang === "javascript") && (
+      {showInstallInput && canRun && (activeFileLang === "python" || activeFileLang === "javascript" || activeFileLang === "typescript" || activeFileLang === "java") && (
         <div className="flex items-center gap-2 px-3 py-2 shrink-0" style={{ background: "rgba(4,6,14,0.97)", borderBottom: "1px solid rgba(16,185,129,0.2)" }}>
           <Package className="w-3.5 h-3.5 shrink-0" style={{ color: "#10B981" }} />
           <input

@@ -1424,6 +1424,12 @@ async function loadGemsRateIntoFormula(): Promise<void> {
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
+    table: "coding_room_files",
+    columns: [
+      { name: "created_by_user_id", ddl: "integer" },
+    ],
+  },
+  {
     table: "notifications",
     columns: [
       { name: "expires_at",          ddl: "timestamptz" },

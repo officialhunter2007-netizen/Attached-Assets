@@ -72,6 +72,7 @@ import {
   type DiagramRequest,
 } from "../lib/v4-diagram-author";
 import { requireSameOriginCsrf } from "../lib/csrf";
+import { checkTeachAbuse } from "../lib/teach-abuse-guard";
 import {
   authorComparison,
   COMPARISON_AI_USD,
@@ -291,6 +292,19 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
 
   if (!slug || !lessonCode || !message) {
     res.status(400).json({ error: "slug, lessonCode, message required" });
+    return;
+  }
+
+  // ── كشف سرعة الإرسال الزائدة ──────────────────────────────────────────
+  const abuse = checkTeachAbuse(uid, message);
+  if (!abuse.allowed) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    res.write(`data: ${JSON.stringify({ content: "\n\n⏳ " + (abuse.warning ?? "تم رفض الطلب") + "\n\n" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, charged: false, teachAbuse: true, severity: abuse.severity, cooldownMs: abuse.cooldownMs ?? 0 })}\n\n`);
+    res.end();
     return;
   }
 
