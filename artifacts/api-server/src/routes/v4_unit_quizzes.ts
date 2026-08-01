@@ -15,6 +15,7 @@ import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
+import { dedupeInflight, HttpError } from "../lib/inflight";
 import { validateQuizHtml } from "../lib/validate-quiz-html";
 import {
   extractUnitContent,
@@ -185,6 +186,7 @@ router.get("/v4/unit-quizzes", requireAuth, async (req: Request, res: Response):
 
 // ── AI auto-generate ──────────────────────────────────────────────────────────
 // Idempotent: returns cached quiz if one already exists for this unit+specialty.
+// In-flight deduped: concurrent students for the same unit share ONE AI call.
 
 router.post("/v4/unit-quizzes/generate", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { specialtySlug, unitCode } = req.body as { specialtySlug?: string; unitCode?: string };
@@ -193,66 +195,57 @@ router.post("/v4/unit-quizzes/generate", requireAuth, async (req: Request, res: 
     return;
   }
 
-  // 1. Return cached quiz immediately
   try {
-    const cached = await db.execute(
-      sql`SELECT id FROM v4_unit_quizzes
-          WHERE specialty_slug = ${specialtySlug} AND unit_code = ${unitCode}`
+    const outcome = await dedupeInflight(
+      `unit-quiz:${specialtySlug}:${unitCode}`,
+      async (): Promise<{ quizId: number; cached: boolean }> => {
+        // 1. Cached quiz → return immediately (shared globally, any student)
+        const cached = await db.execute(
+          sql`SELECT id FROM v4_unit_quizzes
+              WHERE specialty_slug = ${specialtySlug} AND unit_code = ${unitCode}`
+        );
+        if (cached.rows.length > 0) {
+          return { quizId: Number(cached.rows[0].id), cached: true };
+        }
+
+        // 2. Extract unit content
+        const unitContent = await extractUnitContent(specialtySlug, unitCode).catch((err: any) => {
+          logger.error({ err: err?.message }, "unit-quiz generate: content extraction failed");
+          throw new HttpError(500, "خطأ في استخراج محتوى الوحدة");
+        });
+        if (!unitContent) {
+          throw new HttpError(404, "الوحدة غير موجودة أو لا يوجد منهج منشور لهذا التخصص");
+        }
+
+        // 3. Generate via AI (validates internally; throws on failure)
+        const htmlContent = await generateUnitQuizHtml(unitContent, unitCode, specialtySlug);
+
+        // 4. Save (upsert — race-safe)
+        const title = `${unitContent.name} — اختبار الوحدة`;
+        const result = await db.execute(
+          sql`INSERT INTO v4_unit_quizzes (unit_code, specialty_slug, title, html_content)
+              VALUES (${unitCode}, ${specialtySlug}, ${title}, ${htmlContent})
+              ON CONFLICT (unit_code, specialty_slug)
+              DO UPDATE SET html_content = EXCLUDED.html_content,
+                            title        = EXCLUDED.title,
+                            updated_at   = NOW()
+              RETURNING id`
+        );
+        return { quizId: Number(result.rows[0].id), cached: false };
+      }
     );
-    if (cached.rows.length > 0) {
-      res.json({ quizId: Number(cached.rows[0].id), cached: true });
+    res.json(outcome);
+  } catch (err: any) {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
       return;
     }
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "unit-quiz generate: cache check failed");
-    res.status(500).json({ error: "خطأ في قاعدة البيانات" });
-    return;
-  }
-
-  // 2. Extract unit content
-  let unitContent: Awaited<ReturnType<typeof extractUnitContent>>;
-  try {
-    unitContent = await extractUnitContent(specialtySlug, unitCode);
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "unit-quiz generate: content extraction failed");
-    res.status(500).json({ error: "خطأ في استخراج محتوى الوحدة" });
-    return;
-  }
-  if (!unitContent) {
-    res.status(404).json({ error: "الوحدة غير موجودة أو لا يوجد منهج منشور لهذا التخصص" });
-    return;
-  }
-
-  // 3. Generate via AI (validates internally; throws on failure)
-  let htmlContent: string;
-  try {
-    htmlContent = await generateUnitQuizHtml(unitContent, unitCode, specialtySlug);
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "unit-quiz generate: AI failed");
+    logger.error({ err: err?.message }, "unit-quiz generate: failed");
     if (err instanceof GenerateGeminiError && err.creditsExhausted) {
       res.status(503).json({ error: "خدمة الذكاء الاصطناعي متوقفة مؤقتاً، يرجى المحاولة لاحقاً" });
     } else {
       res.status(500).json({ error: "فشل توليد الاختبار، يرجى المحاولة مرة أخرى" });
     }
-    return;
-  }
-
-  // 4. Save (upsert — race-safe)
-  try {
-    const title = `${unitContent.name} — اختبار الوحدة`;
-    const result = await db.execute(
-      sql`INSERT INTO v4_unit_quizzes (unit_code, specialty_slug, title, html_content)
-          VALUES (${unitCode}, ${specialtySlug}, ${title}, ${htmlContent})
-          ON CONFLICT (unit_code, specialty_slug)
-          DO UPDATE SET html_content = EXCLUDED.html_content,
-                        title        = EXCLUDED.title,
-                        updated_at   = NOW()
-          RETURNING id`
-    );
-    res.json({ quizId: Number(result.rows[0].id), cached: false });
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "unit-quiz generate: save failed");
-    res.status(500).json({ error: "خطأ في حفظ الاختبار" });
   }
 });
 

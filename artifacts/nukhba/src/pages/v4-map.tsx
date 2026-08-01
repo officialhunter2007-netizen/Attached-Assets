@@ -1573,6 +1573,50 @@ export default function V4Map() {
     });
   }
 
+  // ── Shared quiz-generation fetch with disconnect recovery ────────────────────
+  // AI generation can take longer than proxy/connection timeouts. If the POST
+  // connection drops, the server keeps generating and saves the quiz to the DB
+  // — so instead of surfacing a false failure, poll the list endpoint until
+  // the finished quiz appears (up to ~80s), then open it normally.
+  async function generateQuizId(
+    genUrl: string,
+    body: Record<string, unknown>,
+    pollUrl: string,
+    match: (q: any) => boolean,
+  ): Promise<number> {
+    try {
+      const r = await fetch(genUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
+        credentials: "include",
+        body: JSON.stringify(body),
+        // Hard cap so a stalled connection can't hang the spinner forever.
+        signal: AbortSignal.timeout(120_000),
+      });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(json?.error ?? "خطأ غير معروف"), { definitive: true });
+      return Number(json.quizId);
+    } catch (err: any) {
+      // A definitive server answer (4xx/5xx JSON) → real failure, surface it.
+      if (err?.definitive) throw err;
+      // Network drop / proxy timeout → generation continues server-side. Poll.
+      for (let i = 0; i < 16; i++) {
+        await new Promise((res) => setTimeout(res, 5000));
+        try {
+          const pr = await fetch(pollUrl, {
+            credentials: "include",
+            signal: AbortSignal.timeout(8_000),
+          });
+          if (!pr.ok) continue;
+          const j = await pr.json().catch(() => ({}));
+          const q = (j.quizzes ?? []).find(match);
+          if (q) return Number(q.id);
+        } catch { /* keep polling */ }
+      }
+      throw new Error("انقطع الاتصال أثناء توليد الاختبار، حاول مجدداً بعد قليل");
+    }
+  }
+
   // ── AI quiz generation handler ───────────────────────────────────────────────
   async function handleUnitQuizClick(unitCode: string, unitName: string, unitTestCode: string | null) {
     if (quizGenLoading.has(unitCode)) return;
@@ -1590,15 +1634,12 @@ export default function V4Map() {
     // Otherwise call the generate endpoint
     setQuizGenLoading((prev) => new Set(prev).add(unitCode));
     try {
-      const r = await fetch("/api/v4/unit-quizzes/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
-        credentials: "include",
-        body: JSON.stringify({ specialtySlug: slug, unitCode }),
-      });
-      const json = await r.json();
-      if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
-      const quizId: number = json.quizId;
+      const quizId = await generateQuizId(
+        "/api/v4/unit-quizzes/generate",
+        { specialtySlug: slug, unitCode },
+        `/api/v4/unit-quizzes?specialty_slug=${encodeURIComponent(slug)}&unit_code=${encodeURIComponent(unitCode)}`,
+        () => true,
+      );
       setSessionQuizIds((prev) => ({ ...prev, [unitCode]: quizId }));
       setServerUnitQuizIds((prev) => ({ ...prev, [unitCode]: quizId }));
       setActiveHtmlQuiz({ id: quizId, title: unitName, examCode, quizType: "unit" });
@@ -1630,15 +1671,12 @@ export default function V4Map() {
 
     setStageQuizGenLoading((prev) => new Set(prev).add(key));
     try {
-      const r = await fetch("/api/v4/stage-quizzes/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
-        credentials: "include",
-        body: JSON.stringify({ specialtySlug: slug, levelIndex, stageIndex }),
-      });
-      const json = await r.json();
-      if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
-      const quizId: number = json.quizId;
+      const quizId = await generateQuizId(
+        "/api/v4/stage-quizzes/generate",
+        { specialtySlug: slug, levelIndex, stageIndex },
+        `/api/v4/stage-quizzes?specialty_slug=${encodeURIComponent(slug)}`,
+        (q) => Number(q.level_index) === levelIndex && Number(q.stage_index) === stageIndex,
+      );
       setSessionStageQuizIds((prev) => ({ ...prev, [key]: quizId }));
       setServerStageQuizIds((prev) => ({ ...prev, [key]: quizId }));
       setActiveHtmlQuiz({ id: quizId, title: stageName, examCode, quizType: "stage" });
@@ -1670,15 +1708,12 @@ export default function V4Map() {
 
     setLevelQuizGenLoading((prev) => new Set(prev).add(key));
     try {
-      const r = await fetch("/api/v4/level-quizzes/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
-        credentials: "include",
-        body: JSON.stringify({ specialtySlug: slug, levelIndex }),
-      });
-      const json = await r.json();
-      if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
-      const quizId: number = json.quizId;
+      const quizId = await generateQuizId(
+        "/api/v4/level-quizzes/generate",
+        { specialtySlug: slug, levelIndex },
+        `/api/v4/level-quizzes?specialty_slug=${encodeURIComponent(slug)}`,
+        (q) => Number(q.level_index) === levelIndex,
+      );
       setSessionLevelQuizIds((prev) => ({ ...prev, [key]: quizId }));
       setServerLevelQuizIds((prev) => ({ ...prev, [key]: quizId }));
       setActiveHtmlQuiz({ id: quizId, title: levelName, examCode, quizType: "level" });
@@ -2233,8 +2268,9 @@ export default function V4Map() {
                 setData((prev) => prev ? bumpNodeStatus(prev, examCode, score) : prev);
               }
 
-              // 2. Close the viewer immediately so the student isn't blocked.
-              setActiveHtmlQuiz(null);
+              // 2. Keep the viewer OPEN so the student sees the result screen
+              //    (per-question feedback + score ring). They close it with
+              //    the إغلاق / X button when done.
 
               // 3. If the student passed (≥ 70) and we have a valid canonical
               //    gate code, persist the pass in v4_exam_attempts so it
@@ -2243,18 +2279,24 @@ export default function V4Map() {
               if (score >= 70 && isCanonicalGate && !recordingGatePass) {
                 setRecordingGatePass(true);
                 try {
-                  await fetch("/api/v4/quiz-scores/record-gate-pass", {
+                  const gr = await fetch("/api/v4/quiz-scores/record-gate-pass", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
                     credentials: "include",
                     body: JSON.stringify({ specialtySlug: slug, examCode, score, quizId, quizType }),
                   });
-                  // Reload the map so unlocked nodes, gate icons, and progress
-                  // bar all reflect the newly-persisted pass accurately.
+                  if (!gr.ok) {
+                    const gj = await gr.json().catch(() => ({}));
+                    throw new Error(gj?.error ?? `HTTP ${gr.status}`);
+                  }
+                  // Reload the map ONLY after the pass is confirmed persisted,
+                  // so unlocked nodes / gate icons reflect real DB state.
                   await reloadMap();
                 } catch {
-                  // Best-effort — local bumpNodeStatus above already gave
-                  // visual feedback; the student can reload manually.
+                  // Surface the failure — the score itself is saved, but the
+                  // gate unlock didn't persist; a retake or reload can retry.
+                  setQuizGenError("تم حفظ درجتك، لكن تعذر تسجيل اجتياز البوابة — أعد تحميل الصفحة أو حاول مجدداً");
+                  setTimeout(() => setQuizGenError(null), 6000);
                 } finally {
                   setRecordingGatePass(false);
                 }

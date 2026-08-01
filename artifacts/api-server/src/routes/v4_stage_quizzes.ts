@@ -15,6 +15,7 @@ import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
+import { dedupeInflight, HttpError } from "../lib/inflight";
 import { validateQuizHtml } from "../lib/validate-quiz-html";
 import {
   extractStageContent,
@@ -201,68 +202,59 @@ router.post("/v4/stage-quizzes/generate", requireAuth, async (req, res): Promise
   const li = Number(levelIndex);
   const si = Number(stageIndex);
 
-  // 1. Return cached quiz immediately
   try {
-    const cached = await db.execute(
-      sql`SELECT id FROM v4_stage_quizzes
-          WHERE specialty_slug = ${specialtySlug}
-            AND level_index    = ${li}
-            AND stage_index    = ${si}`
+    const outcome = await dedupeInflight(
+      `stage-quiz:${specialtySlug}:${li}:${si}`,
+      async (): Promise<{ quizId: number; cached: boolean }> => {
+        // 1. Cached quiz → return immediately (shared globally, any student)
+        const cached = await db.execute(
+          sql`SELECT id FROM v4_stage_quizzes
+              WHERE specialty_slug = ${specialtySlug}
+                AND level_index    = ${li}
+                AND stage_index    = ${si}`
+        );
+        if (cached.rows.length > 0) {
+          return { quizId: Number(cached.rows[0].id), cached: true };
+        }
+
+        // 2. Extract stage content
+        const stageContent = await extractStageContent(specialtySlug, li, si).catch((err: any) => {
+          logger.error({ err: err?.message }, "stage-quiz generate: content extraction failed");
+          throw new HttpError(500, "خطأ في استخراج محتوى المرحلة");
+        });
+        if (!stageContent) {
+          throw new HttpError(404, "المرحلة غير موجودة أو لا يوجد منهج منشور لهذا التخصص");
+        }
+
+        // 3. Generate via AI (validates internally; throws on failure)
+        const htmlContent = await generateStageQuizHtml(stageContent);
+
+        // 4. Save (upsert — race-safe)
+        const title = `${stageContent.name} — اختبار المرحلة`;
+        const result = await db.execute(
+          sql`INSERT INTO v4_stage_quizzes (specialty_slug, level_index, stage_index, title, html_content)
+              VALUES (${specialtySlug}, ${li}, ${si}, ${title}, ${htmlContent})
+              ON CONFLICT (specialty_slug, level_index, stage_index)
+              DO UPDATE SET html_content = EXCLUDED.html_content,
+                            title        = EXCLUDED.title,
+                            updated_at   = NOW()
+              RETURNING id`
+        );
+        return { quizId: Number(result.rows[0].id), cached: false };
+      }
     );
-    if (cached.rows.length > 0) {
-      res.json({ quizId: Number(cached.rows[0].id), cached: true });
+    res.json(outcome);
+  } catch (err: any) {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
       return;
     }
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "stage-quiz generate: cache check failed");
-    res.status(500).json({ error: "خطأ في قاعدة البيانات" });
-    return;
-  }
-
-  // 2. Extract stage content
-  let stageContent: Awaited<ReturnType<typeof extractStageContent>>;
-  try {
-    stageContent = await extractStageContent(specialtySlug, li, si);
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "stage-quiz generate: content extraction failed");
-    res.status(500).json({ error: "خطأ في استخراج محتوى المرحلة" });
-    return;
-  }
-  if (!stageContent) {
-    res.status(404).json({ error: "المرحلة غير موجودة أو لا يوجد منهج منشور لهذا التخصص" });
-    return;
-  }
-
-  // 3. Generate via AI (validates internally; throws on failure)
-  let htmlContent: string;
-  try {
-    htmlContent = await generateStageQuizHtml(stageContent);
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "stage-quiz generate: AI failed");
+    logger.error({ err: err?.message }, "stage-quiz generate: failed");
     if (err instanceof GenerateGeminiError && err.creditsExhausted) {
       res.status(503).json({ error: "خدمة الذكاء الاصطناعي متوقفة مؤقتاً، يرجى المحاولة لاحقاً" });
     } else {
       res.status(500).json({ error: "فشل توليد الاختبار، يرجى المحاولة مرة أخرى" });
     }
-    return;
-  }
-
-  // 4. Save (upsert — race-safe)
-  try {
-    const title = `${stageContent.name} — اختبار المرحلة`;
-    const result = await db.execute(
-      sql`INSERT INTO v4_stage_quizzes (specialty_slug, level_index, stage_index, title, html_content)
-          VALUES (${specialtySlug}, ${li}, ${si}, ${title}, ${htmlContent})
-          ON CONFLICT (specialty_slug, level_index, stage_index)
-          DO UPDATE SET html_content = EXCLUDED.html_content,
-                        title        = EXCLUDED.title,
-                        updated_at   = NOW()
-          RETURNING id`
-    );
-    res.json({ quizId: Number(result.rows[0].id), cached: false });
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "stage-quiz generate: save failed");
-    res.status(500).json({ error: "خطأ في حفظ الاختبار" });
   }
 });
 

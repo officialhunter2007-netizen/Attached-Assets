@@ -2662,9 +2662,16 @@ router.put("/admin/v4/gem-rate", requireSameOriginCsrf, async (req, res): Promis
   const admin = await getUser(adminId);
   if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
 
-  const gemsPer1M = Number(req.body?.gemsPer1M);
-  if (!Number.isFinite(gemsPer1M) || gemsPer1M <= 0) {
+  const rawGemsPer1M = Number(req.body?.gemsPer1M);
+  if (!Number.isFinite(rawGemsPer1M) || rawGemsPer1M <= 0) {
     res.status(400).json({ error: "قيمة غير صالحة — يجب أن يكون عدداً موجباً" });
+    return;
+  }
+  // The knob is a whole-gem count — persist an integer so the stored setting,
+  // the UI display, and the live cache can never drift by a fraction.
+  const gemsPer1M = Math.round(rawGemsPer1M);
+  if (gemsPer1M < 1) {
+    res.status(400).json({ error: "قيمة غير صالحة — الحد الأدنى ١" });
     return;
   }
   // Guard against fat-finger extremes that would make every turn cost 0 or

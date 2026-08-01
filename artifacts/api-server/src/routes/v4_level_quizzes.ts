@@ -15,6 +15,7 @@ import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
+import { dedupeInflight, HttpError } from "../lib/inflight";
 import { validateQuizHtml } from "../lib/validate-quiz-html";
 import {
   extractLevelContent,
@@ -201,66 +202,57 @@ router.post("/v4/level-quizzes/generate", requireAuth, async (req: Request, res:
   }
   const li = Number(levelIndex);
 
-  // 1. Return cached quiz immediately
   try {
-    const cached = await db.execute(
-      sql`SELECT id FROM v4_level_quizzes
-          WHERE specialty_slug = ${specialtySlug} AND level_index = ${li}`
+    const outcome = await dedupeInflight(
+      `level-quiz:${specialtySlug}:${li}`,
+      async (): Promise<{ quizId: number; cached: boolean }> => {
+        // 1. Cached quiz → return immediately (shared globally, any student)
+        const cached = await db.execute(
+          sql`SELECT id FROM v4_level_quizzes
+              WHERE specialty_slug = ${specialtySlug} AND level_index = ${li}`
+        );
+        if (cached.rows.length > 0) {
+          return { quizId: Number(cached.rows[0].id), cached: true };
+        }
+
+        // 2. Extract level content
+        const levelContent = await extractLevelContent(specialtySlug, li).catch((err: any) => {
+          logger.error({ err: err?.message }, "level-quiz generate: content extraction failed");
+          throw new HttpError(500, "خطأ في استخراج محتوى المستوى");
+        });
+        if (!levelContent) {
+          throw new HttpError(404, "المستوى غير موجود أو لا يوجد منهج منشور لهذا التخصص");
+        }
+
+        // 3. Generate via AI (validates internally; throws on failure)
+        const htmlContent = await generateLevelQuizHtml(levelContent);
+
+        // 4. Save (upsert — race-safe)
+        const title = `${levelContent.name} — اختبار المستوى الشامل`;
+        const result = await db.execute(
+          sql`INSERT INTO v4_level_quizzes (specialty_slug, level_index, title, html_content)
+              VALUES (${specialtySlug}, ${li}, ${title}, ${htmlContent})
+              ON CONFLICT (specialty_slug, level_index)
+              DO UPDATE SET html_content = EXCLUDED.html_content,
+                            title        = EXCLUDED.title,
+                            updated_at   = NOW()
+              RETURNING id`
+        );
+        return { quizId: Number(result.rows[0].id), cached: false };
+      }
     );
-    if (cached.rows.length > 0) {
-      res.json({ quizId: Number(cached.rows[0].id), cached: true });
+    res.json(outcome);
+  } catch (err: any) {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
       return;
     }
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "level-quiz generate: cache check failed");
-    res.status(500).json({ error: "خطأ في قاعدة البيانات" });
-    return;
-  }
-
-  // 2. Extract level content
-  let levelContent: Awaited<ReturnType<typeof extractLevelContent>>;
-  try {
-    levelContent = await extractLevelContent(specialtySlug, li);
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "level-quiz generate: content extraction failed");
-    res.status(500).json({ error: "خطأ في استخراج محتوى المستوى" });
-    return;
-  }
-  if (!levelContent) {
-    res.status(404).json({ error: "المستوى غير موجود أو لا يوجد منهج منشور لهذا التخصص" });
-    return;
-  }
-
-  // 3. Generate via AI (validates internally; throws on failure)
-  let htmlContent: string;
-  try {
-    htmlContent = await generateLevelQuizHtml(levelContent);
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "level-quiz generate: AI failed");
+    logger.error({ err: err?.message }, "level-quiz generate: failed");
     if (err instanceof GenerateGeminiError && err.creditsExhausted) {
       res.status(503).json({ error: "خدمة الذكاء الاصطناعي متوقفة مؤقتاً، يرجى المحاولة لاحقاً" });
     } else {
       res.status(500).json({ error: "فشل توليد الاختبار، يرجى المحاولة مرة أخرى" });
     }
-    return;
-  }
-
-  // 4. Save (upsert — race-safe)
-  try {
-    const title = `${levelContent.name} — اختبار المستوى الشامل`;
-    const result = await db.execute(
-      sql`INSERT INTO v4_level_quizzes (specialty_slug, level_index, title, html_content)
-          VALUES (${specialtySlug}, ${li}, ${title}, ${htmlContent})
-          ON CONFLICT (specialty_slug, level_index)
-          DO UPDATE SET html_content = EXCLUDED.html_content,
-                        title        = EXCLUDED.title,
-                        updated_at   = NOW()
-          RETURNING id`
-    );
-    res.json({ quizId: Number(result.rows[0].id), cached: false });
-  } catch (err: any) {
-    logger.error({ err: err?.message }, "level-quiz generate: save failed");
-    res.status(500).json({ error: "خطأ في حفظ الاختبار" });
   }
 });
 
