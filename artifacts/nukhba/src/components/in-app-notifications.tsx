@@ -1,13 +1,11 @@
 /**
- * NotificationCenter — مركز الإشعارات الداخلية
- * زر ثابت يظهر للمستخدم على كل الصفحات.
- * يعرض الإشعارات غير المقروءة في لوحة منبثقة.
- * الإشعار لا يُحذف حتى يُغلقه المستخدم بنفسه أو ينتهي وقته أو يلغيه الأدمن.
+ * InAppNotifications — إشعارات داخلية مباشرة
+ * تظهر كلوحة مركزية في وسط الشاشة عند وجود إشعارات غير مقروءة.
+ * يغلقها الطالب بنفسه بالضغط على X أو "تم".
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/lib/use-auth";
-import { Bell, X, ExternalLink } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { X, Bell } from "lucide-react";
 import { useLocation } from "wouter";
 
 interface InAppNotif {
@@ -24,8 +22,7 @@ const POLL_INTERVAL = 20_000;
 
 export function InAppNotifications() {
   const { user } = useAuth();
-  const [notifs, setNotifs] = useState<InAppNotif[]>([]);
-  const [open, setOpen] = useState(false);
+  const [queue, setQueue] = useState<InAppNotif[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [, navigate] = useLocation();
 
@@ -35,19 +32,25 @@ export function InAppNotifications() {
       const res = await fetch("/api/notifications", { credentials: "include" });
       if (!res.ok) return;
       const data: { notifications: InAppNotif[] } = await res.json();
-      setNotifs(data.notifications.filter((n) => !n.read));
+      const unread = data.notifications.filter((n) => !n.read);
+      setQueue((prev) => {
+        // Only add notifications not already in queue
+        const prevIds = new Set(prev.map((n) => n.id));
+        const newOnes = unread.filter((n) => !prevIds.has(n.id));
+        return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+      });
     } catch { /* ignore */ }
   }, [user]);
 
   useEffect(() => {
-    if (!user) { setNotifs([]); return; }
+    if (!user) { setQueue([]); return; }
     fetchUnread();
     timerRef.current = setInterval(fetchUnread, POLL_INTERVAL);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [user, fetchUnread]);
 
   const dismiss = async (id: number) => {
-    setNotifs((prev) => prev.filter((n) => n.id !== id));
+    setQueue((prev) => prev.filter((n) => n.id !== id));
     await fetch(`/api/notifications/${id}/read`, {
       method: "POST",
       credentials: "include",
@@ -55,99 +58,88 @@ export function InAppNotifications() {
     }).catch(() => {});
   };
 
-  const dismissAll = async () => {
-    setNotifs([]);
-    setOpen(false);
-    await fetch("/api/notifications/read-all", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
-      body: JSON.stringify({}),
-    }).catch(() => {});
-  };
+  // Show one notification at a time (the first in queue)
+  const current = queue[0];
+  if (!user || !current) return null;
 
-  if (!user || notifs.length === 0) return null;
+  const hasLink = current.data?.url && current.data.url !== "/";
 
   return (
     <>
-      {/* Overlay */}
-      {open && (
-        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-      )}
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        onClick={() => dismiss(current.id)}
+      />
 
-      {/* Bell button */}
-      <div className="fixed bottom-6 left-6 z-50 flex flex-col items-end gap-2">
-        {/* Panel */}
-        {open && (
-          <div
-            className="mb-2 w-80 max-h-[70vh] overflow-y-auto rounded-2xl border border-white/15 shadow-2xl shadow-black/60 backdrop-blur-md flex flex-col"
-            style={{ background: "rgba(8,12,24,0.97)" }}
-            dir="rtl"
+      {/* Card */}
+      <div
+        className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md px-4"
+        dir="rtl"
+      >
+        <div
+          className="relative rounded-2xl border border-amber-400/25 shadow-2xl shadow-black/70 overflow-hidden"
+          style={{ background: "rgba(8,12,24,0.98)" }}
+        >
+          {/* Glow accent */}
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
+
+          {/* Close button */}
+          <button
+            onClick={() => dismiss(current.id)}
+            className="absolute top-4 left-4 w-7 h-7 rounded-full flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <span className="font-bold text-sm text-white">الإشعارات</span>
+            <X className="w-4 h-4" />
+          </button>
+
+          {/* Content */}
+          <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
+            {/* Icon */}
+            <div className="w-14 h-14 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center">
+              <Bell className="w-7 h-7 text-amber-400" />
+            </div>
+
+            {/* Text */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-white leading-snug">{current.title}</h3>
+              {current.body && (
+                <p className="text-sm text-white/65 leading-relaxed">{current.body}</p>
+              )}
+            </div>
+
+            {/* Counter pill */}
+            {queue.length > 1 && (
+              <span className="text-[11px] text-amber-400/60 bg-amber-400/10 border border-amber-400/20 rounded-full px-3 py-1">
+                {queue.length - 1} إشعار آخر ينتظر
+              </span>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 w-full mt-1">
+              {hasLink && (
+                <button
+                  onClick={() => {
+                    navigate(current.data!.url!);
+                    dismiss(current.id);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-300 text-sm font-semibold hover:bg-amber-400/25 transition-colors"
+                >
+                  فتح
+                </button>
+              )}
               <button
-                onClick={dismissAll}
-                className="text-[11px] text-amber-400/80 hover:text-amber-400 transition-colors"
+                onClick={() => dismiss(current.id)}
+                className={`py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  hasLink
+                    ? "flex-1 bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
+                    : "w-full bg-white/8 border border-white/15 text-white/80 hover:bg-white/12"
+                }`}
               >
-                مسح الكل
+                تم
               </button>
             </div>
-
-            {/* Items */}
-            <div className="divide-y divide-white/5 flex-1">
-              {notifs.map((n) => (
-                <div key={n.id} className="px-4 py-3 flex gap-3 items-start group">
-                  <div className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-white leading-snug">{n.title}</p>
-                    {n.body && (
-                      <p className="text-xs text-white/60 mt-0.5 leading-relaxed">{n.body}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="text-[10px] text-white/35">
-                        {new Date(n.created_at).toLocaleString("ar", {
-                          month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                        })}
-                      </span>
-                      {n.data?.url && n.data.url !== "/" && (
-                        <button
-                          onClick={() => { navigate(n.data!.url!); dismiss(n.id); setOpen(false); }}
-                          className="flex items-center gap-0.5 text-[10px] text-amber-400/70 hover:text-amber-400"
-                        >
-                          <ExternalLink className="w-2.5 h-2.5" />
-                          فتح
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => dismiss(n.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-white/30 hover:text-white/70 shrink-0 mt-0.5"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
           </div>
-        )}
-
-        {/* Bell */}
-        <Button
-          onClick={() => setOpen((v) => !v)}
-          size="icon"
-          className="relative w-12 h-12 rounded-full shadow-lg shadow-black/50 border border-amber-400/40"
-          style={{ background: "rgba(10,15,30,0.95)" }}
-        >
-          <Bell className="w-5 h-5 text-amber-400" />
-          {notifs.length > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
-              {notifs.length > 9 ? "9+" : notifs.length}
-            </span>
-          )}
-        </Button>
+        </div>
       </div>
     </>
   );
