@@ -1129,6 +1129,9 @@ export default function V4Map() {
   // lesson/lab we open ONE adaptive exam covering all prerequisite units;
   // passing it (≥70%) unlocks the whole prior path up to the tapped node.
   const [testOut, setTestOut] = useState<TestOutTarget | null>(null);
+  // Skip-instructions modal: shown BEFORE opening the test-out exam so the
+  // student understands the "prove mastery to skip ahead" mechanism.
+  const [skipInstructions, setSkipInstructions] = useState<FlatNode | null>(null);
   // HTML quiz viewer (unit quizzes authored by admin as self-grading HTML pages).
   const [activeHtmlQuiz, setActiveHtmlQuiz] = useState<{ id: number; title: string; examCode: string; quizType: "unit" | "stage" | "level" } | null>(null);
   // Tracks whether a gate-pass is being recorded so we don't double-submit.
@@ -1544,6 +1547,13 @@ export default function V4Map() {
       setTimeout(() => setTooltip(null), 2000);
       return;
     }
+    // Show instructions modal first — student must understand what the
+    // test-out is before committing to an AI-charged adaptive exam.
+    setSkipInstructions(node);
+  }
+
+  function confirmSkipTestOut(node: FlatNode) {
+    setSkipInstructions(null);
     setTestOut({
       code: node.id,
       label: node.label,
@@ -2386,6 +2396,102 @@ export default function V4Map() {
           onDone={() => setCelebration(null)}
         />
       )}
+
+      {/* ── Skip-ahead instructions modal ── */}
+      <AnimatePresence>
+        {skipInstructions && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)" }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 40, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 40, scale: 0.97 }}
+              transition={{ type: "spring", stiffness: 340, damping: 30 }}
+              className="w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl"
+              dir="rtl"
+              style={{
+                background: "linear-gradient(160deg, rgba(15,15,30,0.98), rgba(10,10,20,0.99))",
+                border: "1px solid rgba(139,92,246,0.35)",
+                boxShadow: "0 0 60px rgba(139,92,246,0.15), 0 24px 48px rgba(0,0,0,0.6)",
+              }}
+            >
+              {/* Header */}
+              <div
+                className="px-5 pt-5 pb-4"
+                style={{ borderBottom: "1px solid rgba(139,92,246,0.2)" }}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.3), rgba(109,40,217,0.4))", border: "1px solid rgba(139,92,246,0.4)" }}>
+                    <GraduationCap className="w-5 h-5 text-violet-300" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-sm leading-tight">هل تريد البدء من هنا مباشرةً؟</h3>
+                    <p className="text-[11px] text-violet-300/70 mt-0.5 truncate max-w-[220px]">{skipInstructions.label}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="px-5 py-4 space-y-3">
+                {/* How it works */}
+                <div className="rounded-2xl p-3.5 space-y-2.5" style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.18)" }}>
+                  <p className="text-[11px] font-bold text-violet-300 mb-1">كيف يعمل التخطي؟</p>
+                  {[
+                    { icon: <ClipboardList className="w-3.5 h-3.5 shrink-0 text-violet-400" />, text: "سيُطرح عليك اختبار تقييمي ذكي يغطي المواضيع السابقة لهذا الدرس" },
+                    { icon: <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-400" />, text: "إذا أجبت بدرجة ≥ ٧٠٪ — يُفتح هذا الدرس وما قبله فوراً" },
+                    { icon: <XCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />, text: "إذا لم تجتز — ننصحك بالبدء من الدرس المتاح الحالي" },
+                    { icon: <Zap className="w-3.5 h-3.5 shrink-0 text-amber-400" />, text: "الاختبار يستهلك جواهر من رصيدك ويُولَّد بالذكاء الاصطناعي" },
+                  ].map(({ icon, text }, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      {icon}
+                      <p className="text-[11px] text-white/70 leading-relaxed">{text}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tip */}
+                <div className="rounded-xl px-3 py-2.5 flex items-start gap-2" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}>
+                  <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-400 mt-0.5" />
+                  <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                    إذا كنت تعرف المادة مسبقاً (دراسة سابقة أو خبرة عملية) فهذا الاختبار طريقك للبدء من حيث تستحق مباشرةً.
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="px-5 pb-5 flex gap-3">
+                <button
+                  onClick={() => setSkipInstructions(null)}
+                  className="flex-1 py-2.5 rounded-2xl text-sm font-bold transition-all active:scale-95"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" }}
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={() => confirmSkipTestOut(skipInstructions)}
+                  className="flex-[2] py-2.5 rounded-2xl text-sm font-bold transition-all active:scale-95"
+                  style={{
+                    background: "linear-gradient(to left, rgba(109,40,217,0.7), rgba(139,92,246,0.6))",
+                    border: "1px solid rgba(139,92,246,0.5)",
+                    color: "#e9d5ff",
+                    boxShadow: "0 4px 16px rgba(139,92,246,0.2)",
+                  }}
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    <GraduationCap className="w-4 h-4" />
+                    ابدأ اختبار التخطي
+                  </span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Locked-node adaptive test-out exam dialog ── */}
       <AdaptiveTestOutDialog

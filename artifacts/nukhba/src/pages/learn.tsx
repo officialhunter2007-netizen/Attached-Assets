@@ -401,69 +401,6 @@ export default function Learn() {
             </TabsContent>
           </Tabs>
 
-          {/* Testimonials */}
-          <div className="mt-16 md:mt-24 pt-10 md:pt-14" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              className="text-center mb-8 md:mb-10"
-            >
-              <h2 className="text-xl md:text-3xl font-black mb-2">{tr.learn.testimonialsTitle}</h2>
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
-                {tr.learn.testimonialsDesc}
-              </p>
-            </motion.div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-5">
-              {[
-                { name: "خالد ص.", subject: "البرمجة", text: "كنت أضيع وقتاً كثيراً أدوّر شروحات. لما بدأت مع نُخبة، التعلم صار منظماً وكل جلسة تبني على اللي قبلها.", stars: 5 },
-                { name: "ريم ع.", subject: "قواعد البيانات", text: "المعلم الذكي شرحها بطريقة بسيطة وربطها بأمثلة من حياتنا. حرفياً أنقذني قبل الاختبار.", stars: 5 },
-                { name: "عمار ح.", subject: "تطوير الويب", text: "أحلى شي إنك تقدر تسأل أي سؤال مهما كان بسيط. بديت أبني مشاريعي الخاصة بعد أسابيع.", stars: 5 },
-                { name: "منى أ.", subject: "الخوارزميات", text: "بعد شهر مع نُخبة، صرت أفهم كيف أحلل المسألة وأختار الحل المناسب. التقدم الذي حققته كان مفاجأة.", stars: 4 },
-                { name: "باسم ن.", subject: "الشبكات", text: "المعلم يعرف مستواك ويبدأ معك من نقطتك. ما يفترض إنك فاهم شي ما تعرفه — هذا اللي خلاني أستمر.", stars: 5 },
-                { name: "هدى م.", subject: "Python", text: "بدأت من صفر ما أعرف شي عن البرمجة. الآن أكتب برامج كاملة. الـ ١٥ رسالة المجانية أثبتت إن المنصة تستاهل.", stars: 5 },
-              ].map((review, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: 12 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.06 }}
-                  className="rounded-2xl p-4 md:p-5 flex flex-col relative overflow-hidden"
-                  style={{
-                    background: "rgba(12,15,26,0.8)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
-                  }}
-                >
-                  <div className="absolute top-3 left-3 text-5xl font-black leading-none pointer-events-none select-none"
-                    style={{ color: "rgba(245,158,11,0.06)" }}>
-                    "
-                  </div>
-                  <div className="flex items-center gap-1 mb-3">
-                    {Array.from({ length: review.stars }).map((_, si) => (
-                      <Star key={si} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                    ))}
-                    {Array.from({ length: 5 - review.stars }).map((_, si) => (
-                      <Star key={`e${si}`} className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.12)" }} />
-                    ))}
-                  </div>
-                  <p className="text-sm leading-relaxed flex-1 mb-4" style={{ color: "rgba(255,255,255,0.8)" }}>
-                    "{review.text}"
-                  </p>
-                  <div className="flex items-center justify-between pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <span className="text-xs font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>{review.name}</span>
-                    <span
-                      className="text-[10px] px-2 py-0.5 rounded-full font-bold"
-                      style={{ background: "rgba(245,158,11,0.1)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.2)" }}
-                    >
-                      {review.subject}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </AppLayout>
