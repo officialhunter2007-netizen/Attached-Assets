@@ -331,12 +331,6 @@ function GenericCard({
                   )}
                 </button>
               )}
-              <button
-                onClick={onDismiss}
-                className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 transition-colors"
-              >
-                تم
-              </button>
             </div>
           </div>
         </div>
