@@ -36,7 +36,6 @@ import BookletLab from "@/pages/booklet-lab";
 import BookletExam from "@/pages/booklet-exam";
 import CodingRooms from "@/pages/coding-rooms";
 import CodingRoom from "@/pages/coding-room";
-import Dashboard from "@/pages/dashboard";
 import { ReferralGemsModal } from "@/components/referral-gems-modal";
 import TypingEn from "@/pages/typing-en";
 import TypingLesson from "@/pages/typing-lesson";
@@ -235,7 +234,6 @@ function Router() {
       <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
       <Route path="/coding-rooms" component={() => <ProtectedRoute component={CodingRooms} />} />
       <Route path="/coding-room/:roomId" component={() => <ProtectedRoute component={CodingRoom} />} />
-      <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/typing" component={() => <ProtectedRoute component={TypingEn} />} />
       <Route path="/typing/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
       <Route path="/certificates" component={() => <ProtectedRoute component={Certificates} />} />

@@ -927,7 +927,7 @@ export default function Admin() {
             <div className="flex flex-wrap gap-2">
               {liveUsersList.map(u => {
                 const pageNames: Record<string, string> = {
-                  '/': 'الرئيسية', '/learn': 'التعلّم', '/dashboard': 'لوحتي',
+                  '/': 'الرئيسية', '/learn': 'التعلّم',
                   '/subscription': 'الاشتراك', '/support': 'الدعم', '/admin': 'الإدارة',
                 };
                 const pageName = pageNames[u.page] || (u.page.startsWith('/subject/') ? 'جلسة تعلّم' : u.page);

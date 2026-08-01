@@ -117,11 +117,6 @@ export default function UsagePage() {
               متابعة شفّافة لكل عملية على رصيدك — منح، خصم، استرداد، أو إسقاط منتصف الليل.
             </p>
           </div>
-          <Link href="/dashboard">
-            <Button variant="outline" size="sm" className="border-white/10">
-              <ArrowRight className="w-4 h-4 ml-1" /> لوحتي
-            </Button>
-          </Link>
         </div>
 
         {/* Per-subject snapshot */}
