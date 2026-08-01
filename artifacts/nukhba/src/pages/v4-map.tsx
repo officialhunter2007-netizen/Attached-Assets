@@ -1535,9 +1535,6 @@ export default function V4Map() {
         });
       }
     }
-    if (m.levelTest) {
-      pushNode({ id: m.levelTest.code, label: "اختبار المستوى", sublabel: m.levelName, kind: "level_test", status: m.levelTest.status });
-    }
     // Level quiz gate — always shown at the very end of the map
     items.push({
       type: "level_quiz_action",
