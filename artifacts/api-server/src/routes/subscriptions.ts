@@ -1422,17 +1422,32 @@ router.post("/admin/subscription-requests/:id/approve", requireSameOriginCsrf, a
 
     // ── إشعار فوري للطالب عند قبول الاشتراك (best-effort — لا يؤثر على الاستجابة) ──
     {
-      const sName  = subscription.subjectName ?? requestSubjectId;
-      const pLabel = request.planType ?? "قياسية";
-      const nTitle = "🎉 تمت الموافقة على اشتراكك";
-      const nBody  = `تم تفعيل باقة ${pLabel} لمادة "${sName}". ابدأ رحلتك التعليمية الآن!`;
-      sendExpoToStudent(request.userId, nTitle, nBody, "/subscription").catch(() => {});
-      sendVapidToStudent(request.userId, nTitle, nBody, "/subscription").catch(() => {});
+      const PLAN_LABELS: Record<string, string> = {
+        bronze: "البرونزية", silver: "الفضية", gold: "الذهبية",
+      };
+      const sName    = subscription.subjectName ?? requestSubjectId;
+      const pLabel   = PLAN_LABELS[request.planType ?? ""] ?? request.planType ?? "القياسية";
+      const gems     = v4Result.breakdown?.gemsGranted ?? v4Result.balanceAfter ?? 0;
+      const expDate  = expiresAt.toLocaleDateString("ar-YE", { year: "numeric", month: "long", day: "numeric" });
+      const nTitle   = "🎉 تمت الموافقة على اشتراكك";
+      const nBody    = `تم تفعيل الباقة ${pLabel} لتخصص "${sName}" — تنتهي في ${expDate}.`;
+      const nData    = JSON.stringify({
+        url:         "/learn",
+        type:        "subscription_approved",
+        subjectId:   requestSubjectId,
+        subjectName: sName,
+        planType:    request.planType,
+        planLabel:   pLabel,
+        gemsGranted: gems,
+        expiresAt:   expiresAt.toISOString(),
+      });
+      sendExpoToStudent(request.userId, nTitle, nBody, "/learn").catch(() => {});
+      sendVapidToStudent(request.userId, nTitle, nBody, "/learn").catch(() => {});
       db.execute(sql`
         INSERT INTO notifications (user_id, type, title, body, data)
         VALUES (
           ${request.userId}, 'subscription_approved', ${nTitle}, ${nBody},
-          ${JSON.stringify({ subjectId: requestSubjectId, subjectName: sName, planType: request.planType })}::jsonb
+          ${nData}::jsonb
         )
       `).catch(() => {});
     }

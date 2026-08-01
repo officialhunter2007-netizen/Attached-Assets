@@ -1,30 +1,241 @@
 /**
  * InAppNotifications — إشعارات داخلية مباشرة
- * تظهر كلوحة مركزية في وسط الشاشة عند وجود إشعارات غير مقروءة.
- * يغلقها الطالب بنفسه بالضغط على X أو "تم".
+ * تظهر كلوحة مركزية عند وجود إشعارات غير مقروءة.
+ * نوع subscription_approved يحصل على تصميم أخضر احتفالي خاص.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/lib/use-auth";
-import { X, Bell } from "lucide-react";
+import { X, Bell, CheckCircle2, Sparkles, BookOpen, Gem } from "lucide-react";
 import { useLocation } from "wouter";
+
+interface NotifData {
+  url?: string;
+  type?: string;
+  subjectName?: string;
+  planLabel?: string;
+  gemsGranted?: number;
+  expiresAt?: string;
+}
 
 interface InAppNotif {
   id: number;
+  type: string;
   title: string;
   body: string;
-  data?: { url?: string };
+  data?: NotifData;
   read: boolean;
   created_at: string;
-  expires_at?: string | null;
 }
 
 const POLL_INTERVAL = 20_000;
 
+// ── Subscription-approved card ────────────────────────────────────────────────
+function SubscriptionCard({
+  notif,
+  onDismiss,
+}: {
+  notif: InAppNotif;
+  onDismiss: () => void;
+}) {
+  const [, navigate] = useLocation();
+  const d = notif.data ?? {};
+  const expiryLabel = d.expiresAt
+    ? new Date(d.expiresAt).toLocaleDateString("ar-YE", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
+
+  const PLAN_ICONS: Record<string, string> = {
+    bronze: "🥉",
+    silver: "🥈",
+    gold:   "🥇",
+  };
+  const rawPlan = notif.data?.type === "subscription_approved"
+    ? (notif.data as any)?.planType ?? ""
+    : "";
+  const planIcon = PLAN_ICONS[rawPlan] ?? "✨";
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm" onClick={onDismiss} />
+
+      {/* Card */}
+      <div className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md px-4" dir="rtl">
+        <div
+          className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/70"
+          style={{ background: "rgba(5,18,12,0.98)" }}
+        >
+          {/* Top glow bar */}
+          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent" />
+
+          {/* Green hero band */}
+          <div className="relative px-6 pt-8 pb-5 flex flex-col items-center text-center gap-1"
+            style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(52,211,153,0.12) 0%, transparent 70%)" }}>
+
+            {/* Close */}
+            <button
+              onClick={onDismiss}
+              className="absolute top-4 left-4 w-7 h-7 rounded-full flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/10 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Badge icon */}
+            <div className="relative mb-2">
+              <div className="w-20 h-20 rounded-2xl bg-emerald-500/15 border border-emerald-400/25 flex items-center justify-center">
+                <CheckCircle2 className="w-9 h-9 text-emerald-400" strokeWidth={1.5} />
+              </div>
+              <span className="absolute -top-2 -right-2 text-2xl">{planIcon}</span>
+            </div>
+
+            <h3 className="text-xl font-bold text-emerald-300 leading-snug">
+              تمت الموافقة على اشتراكك!
+            </h3>
+            <p className="text-sm text-white/50 mt-0.5">مبروك، باقتك أصبحت نشطة الآن</p>
+          </div>
+
+          {/* Details grid */}
+          <div className="px-6 pb-2">
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 divide-y divide-emerald-500/10">
+              {d.subjectName && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-xs text-white/45 flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5" /> التخصص
+                  </span>
+                  <span className="text-sm font-semibold text-white">{d.subjectName}</span>
+                </div>
+              )}
+              {d.planLabel && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-xs text-white/45 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" /> الباقة
+                  </span>
+                  <span className="text-sm font-semibold text-emerald-300">{d.planLabel}</span>
+                </div>
+              )}
+              {d.gemsGranted != null && d.gemsGranted > 0 && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-xs text-white/45 flex items-center gap-1.5">
+                    <Gem className="w-3.5 h-3.5" /> الجواهر المضافة
+                  </span>
+                  <span className="text-sm font-bold text-amber-300">
+                    +{d.gemsGranted.toLocaleString("ar")} 💎
+                  </span>
+                </div>
+              )}
+              {expiryLabel && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-xs text-white/45">تنتهي في</span>
+                  <span className="text-sm text-white/70">{expiryLabel}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="px-6 pt-4 pb-6 flex flex-col gap-2">
+            <button
+              onClick={() => { navigate(d.url ?? "/learn"); onDismiss(); }}
+              className="w-full py-3 rounded-xl bg-emerald-500/20 border border-emerald-400/35 text-emerald-300 font-bold text-sm hover:bg-emerald-500/30 transition-colors"
+            >
+              ابدأ رحلتك التعليمية ←
+            </button>
+            <button
+              onClick={onDismiss}
+              className="w-full py-2.5 rounded-xl text-xs text-white/35 hover:text-white/55 transition-colors"
+            >
+              إغلاق
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Generic notification card ─────────────────────────────────────────────────
+function GenericCard({
+  notif,
+  queueLength,
+  onDismiss,
+}: {
+  notif: InAppNotif;
+  queueLength: number;
+  onDismiss: () => void;
+}) {
+  const [, navigate] = useLocation();
+  const hasLink = notif.data?.url && notif.data.url !== "/";
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={onDismiss} />
+      <div className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md px-4" dir="rtl">
+        <div
+          className="relative rounded-2xl border border-white/10 shadow-2xl shadow-black/70 overflow-hidden"
+          style={{ background: "rgba(8,12,24,0.98)" }}
+        >
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
+
+          <button
+            onClick={onDismiss}
+            className="absolute top-4 left-4 w-7 h-7 rounded-full flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
+          <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center">
+              <Bell className="w-7 h-7 text-amber-400" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-white leading-snug">{notif.title}</h3>
+              {notif.body && (
+                <p className="text-sm text-white/65 leading-relaxed">{notif.body}</p>
+              )}
+            </div>
+
+            {queueLength > 1 && (
+              <span className="text-[11px] text-amber-400/60 bg-amber-400/10 border border-amber-400/20 rounded-full px-3 py-1">
+                {queueLength - 1} إشعار آخر ينتظر
+              </span>
+            )}
+
+            <div className="flex gap-2 w-full mt-1">
+              {hasLink && (
+                <button
+                  onClick={() => { navigate(notif.data!.url!); onDismiss(); }}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-300 text-sm font-semibold hover:bg-amber-400/25 transition-colors"
+                >
+                  فتح
+                </button>
+              )}
+              <button
+                onClick={onDismiss}
+                className={`py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  hasLink
+                    ? "flex-1 bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
+                    : "w-full bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
+                }`}
+              >
+                تم
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export function InAppNotifications() {
   const { user } = useAuth();
   const [queue, setQueue] = useState<InAppNotif[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [, navigate] = useLocation();
 
   const fetchUnread = useCallback(async () => {
     if (!user) return;
@@ -34,7 +245,6 @@ export function InAppNotifications() {
       const data: { notifications: InAppNotif[] } = await res.json();
       const unread = data.notifications.filter((n) => !n.read);
       setQueue((prev) => {
-        // Only add notifications not already in queue
         const prevIds = new Set(prev.map((n) => n.id));
         const newOnes = unread.filter((n) => !prevIds.has(n.id));
         return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
@@ -58,89 +268,25 @@ export function InAppNotifications() {
     }).catch(() => {});
   };
 
-  // Show one notification at a time (the first in queue)
   const current = queue[0];
   if (!user || !current) return null;
 
-  const hasLink = current.data?.url && current.data.url !== "/";
+  const isSubscription = current.type === "subscription_approved";
+
+  if (isSubscription) {
+    return (
+      <SubscriptionCard
+        notif={current}
+        onDismiss={() => dismiss(current.id)}
+      />
+    );
+  }
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-        onClick={() => dismiss(current.id)}
-      />
-
-      {/* Card */}
-      <div
-        className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md px-4"
-        dir="rtl"
-      >
-        <div
-          className="relative rounded-2xl border border-amber-400/25 shadow-2xl shadow-black/70 overflow-hidden"
-          style={{ background: "rgba(8,12,24,0.98)" }}
-        >
-          {/* Glow accent */}
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
-
-          {/* Close button */}
-          <button
-            onClick={() => dismiss(current.id)}
-            className="absolute top-4 left-4 w-7 h-7 rounded-full flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
-          {/* Content */}
-          <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
-            {/* Icon */}
-            <div className="w-14 h-14 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center">
-              <Bell className="w-7 h-7 text-amber-400" />
-            </div>
-
-            {/* Text */}
-            <div className="space-y-2">
-              <h3 className="text-lg font-bold text-white leading-snug">{current.title}</h3>
-              {current.body && (
-                <p className="text-sm text-white/65 leading-relaxed">{current.body}</p>
-              )}
-            </div>
-
-            {/* Counter pill */}
-            {queue.length > 1 && (
-              <span className="text-[11px] text-amber-400/60 bg-amber-400/10 border border-amber-400/20 rounded-full px-3 py-1">
-                {queue.length - 1} إشعار آخر ينتظر
-              </span>
-            )}
-
-            {/* Actions */}
-            <div className="flex gap-2 w-full mt-1">
-              {hasLink && (
-                <button
-                  onClick={() => {
-                    navigate(current.data!.url!);
-                    dismiss(current.id);
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-300 text-sm font-semibold hover:bg-amber-400/25 transition-colors"
-                >
-                  فتح
-                </button>
-              )}
-              <button
-                onClick={() => dismiss(current.id)}
-                className={`py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  hasLink
-                    ? "flex-1 bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
-                    : "w-full bg-white/8 border border-white/15 text-white/80 hover:bg-white/12"
-                }`}
-              >
-                تم
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
+    <GenericCard
+      notif={current}
+      queueLength={queue.length}
+      onDismiss={() => dismiss(current.id)}
+    />
   );
 }
