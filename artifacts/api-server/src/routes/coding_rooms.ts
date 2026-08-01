@@ -191,6 +191,10 @@ router.get("/coding-rooms/:roomId", requireUser, async (req: any, res: any) => {
     );
 
     const myMember = (members.rows as any[]).find((m) => m.user_id === userId);
+    // Only members (any status) and the host may see room details
+    if (!myMember) {
+      return res.status(403).json({ error: "لست عضواً في هذه الغرفة" });
+    }
 
     return res.json({
       room: { ...room, languages: Array.isArray(room.languages) ? room.languages : [] },
@@ -282,10 +286,14 @@ router.post("/coding-rooms/:roomId/admit", requireUser, async (req: any, res: an
       return res.status(403).json({ error: "فقط المشرف يستطيع قبول الطلبات" });
     }
 
-    await db.execute(
+    // Only admit users who are currently waiting (idempotent-safe conditional update)
+    const admitResult = await db.execute(
       sql`UPDATE coding_room_members SET status = 'joined', updated_at = NOW()
-          WHERE room_id = ${roomId} AND user_id = ${targetUserId}`
+          WHERE room_id = ${roomId} AND user_id = ${targetUserId} AND status = 'waiting'`
     );
+    if (!admitResult.rowCount) {
+      return res.status(409).json({ error: "لا يوجد طلب انتظار لهذا المستخدم" });
+    }
 
     return res.json({ ok: true });
   } catch (err: any) {
@@ -307,9 +315,10 @@ router.post("/coding-rooms/:roomId/reject", requireUser, async (req: any, res: a
       return res.status(403).json({ error: "فقط المشرف يستطيع رفض الطلبات" });
     }
 
+    // Only reject users who are currently waiting
     await db.execute(
       sql`UPDATE coding_room_members SET status = 'rejected', updated_at = NOW()
-          WHERE room_id = ${roomId} AND user_id = ${targetUserId}`
+          WHERE room_id = ${roomId} AND user_id = ${targetUserId} AND status = 'waiting'`
     );
 
     return res.json({ ok: true });
@@ -367,8 +376,8 @@ router.get("/coding-rooms/:roomId/files", requireUser, async (req: any, res: any
       sql`SELECT status FROM coding_room_members
           WHERE room_id = ${roomId} AND user_id = ${userId} LIMIT 1`
     );
-    if (!memberCheck.rows.length) {
-      return res.status(403).json({ error: "لست عضواً في هذه الغرفة" });
+    if (!memberCheck.rows.length || (memberCheck.rows[0] as any).status !== "joined") {
+      return res.status(403).json({ error: "لست عضواً نشطاً في هذه الغرفة" });
     }
 
     const files = await db.execute(
@@ -393,8 +402,8 @@ router.get("/coding-rooms/:roomId/download", requireUser, async (req: any, res: 
       sql`SELECT status FROM coding_room_members
           WHERE room_id = ${roomId} AND user_id = ${userId} LIMIT 1`
     );
-    if (!memberCheck.rows.length) {
-      return res.status(403).json({ error: "لست عضواً في هذه الغرفة" });
+    if (!memberCheck.rows.length || (memberCheck.rows[0] as any).status !== "joined") {
+      return res.status(403).json({ error: "لست عضواً نشطاً في هذه الغرفة" });
     }
 
     const files = await db.execute(

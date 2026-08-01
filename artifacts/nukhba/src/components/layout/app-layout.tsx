@@ -685,7 +685,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      {user && !location.startsWith("/subject") && <PlatformChatWidget />}
+      {user && !location.startsWith("/subject") && !location.startsWith("/coding-room") && <PlatformChatWidget />}
 
       {/* ── FOOTER ── */}
       <footer className="border-t border-white/6 py-8 mt-auto"
