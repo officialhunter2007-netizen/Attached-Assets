@@ -62,7 +62,11 @@ export type GemLedgerSource =
   | "v4_booklet_teach"   // v4: per-turn booklet RAG teaching
   | "v4_ai_scene"        // v4: lazy [[SCENE]] interactive-story generation (Sonnet)
   | "v4_ai_placement"    // v4: adaptive placement-test question generation
-  | "v4_referral";        // v4: referral reward allocation
+  | "v4_referral"         // v4: referral reward allocation
+  | "v4_ai_quiz"          // v4: HTML quiz generation (unit/stage/level) — flat 20 gems
+  | "v4_ai_visual"        // v4: visual explanation request — flat 50 gems
+  | "v4_typing_lesson"    // v4: typing trainer lesson completion — flat 4 gems
+  | "v4_coding_room";    // v4: coding room presence — 1 gem per 2-minute tick
 
 export type WriteGemLedgerOpts = {
   userId: number;

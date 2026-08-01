@@ -1,0 +1,377 @@
+كس المدخل (0 يصبح 1 والعكس)</option></select>
+
+      <div class="match-left">OR Gate</div>
+      <div class="match-arrow">←</div>
+      <select class="match-select" id="m4b"><option value="">اختر...</option><option value="and">تعطي 1 فقط إذا كانت كل المدخلات 1</option><option value="or">تعطي 1 إذا كان أحد المدخلات على الأقل 1</option><option value="xor">تعطي 1 فقط إذا اختلفت المدخلات</option><option value="not">تعكس المدخل (0 يصبح 1 والعكس)</option></select>
+
+      <div class="match-left">XOR Gate</div>
+      <div class="match-arrow">←</div>
+      <select class="match-select" id="m4c"><option value="">اختر...</option><option value="and">تعطي 1 فقط إذا كانت كل المدخلات 1</option><option value="or">تعطي 1 إذا كان أحد المدخلات على الأقل 1</option><option value="xor">تعطي 1 فقط إذا اختلفت المدخلات</option><option value="not">تعكس المدخل (0 يصبح 1 والعكس)</option></select>
+
+      <div class="match-left">NOT Gate</div>
+      <div class="match-arrow">←</div>
+      <select class="match-select" id="m4d"><option value="">اختر...</option><option value="and">تعطي 1 فقط إذا كانت كل المدخلات 1</option><option value="or">تعطي 1 إذا كان أحد المدخلات على الأقل 1</option><option value="xor">تعطي 1 فقط إذا اختلفت المدخلات</option><option value="not">تعكس المدخل (0 يصبح 1 والعكس)</option></select>
+    </div>
+    <div class="q-feedback"></div>
+  </div>
+
+  <!-- Q5 MCQ: K-map -->
+  <div class="q-card" data-qid="5" data-type="mcq" data-answer="c" data-points="10">
+    <div class="q-meta"><span class="q-num">05</span><span class="q-type">اختيار من متعدد</span><span class="q-points">10 نقاط</span></div>
+    <div class="q-text">ما الهدف الرئيسي من استخدام خريطة كارنو (K-map) في تصميم الدوائر المنطقية؟</div>
+    <div class="options">
+      <label class="option"><input type="radio" name="q5" value="a"><span class="option-letter">أ</span>زيادة عدد البوابات المستخدمة لرفع الدقة</label>
+      <label class="option"><input type="radio" name="q5" value="b"><span class="option-letter">ب</span>تحويل الأعداد بين الأنظمة المختلفة</label>
+      <label class="option"><input type="radio" name="q5" value="c"><span class="option-letter">ج</span>تبسيط التعبيرات البوليانية وتقليل عدد البوابات</label>
+      <label class="option"><input type="radio" name="q5" value="d"><span class="option-letter">د</span>بناء جداول الحقيقة بشكل آلي</label>
+    </div>
+    <div class="q-feedback"></div>
+  </div>
+
+  <!-- Q6 SORT: K-map steps -->
+  <div class="q-card" data-qid="6" data-type="sort" data-points="10">
+    <div class="q-meta"><span class="q-num">06</span><span class="q-type">ترتيب الخطوات</span><span class="q-points">10 نقاط</span></div>
+    <div class="q-text">رتّب خطوات استخدام خريطة كارنو بالترتيب الصحيح (اسحب لإعادة الترتيب):</div>
+    <div class="sort-list" id="sort6">
+      <div class="sort-item" draggable="true" data-order="3"><span class="drag-handle">⠿</span>تجميع الخلايا المتجاورة التي تحتوي على 1</div>
+      <div class="sort-item" draggable="true" data-order="1"><span class="drag-handle">⠿</span>بناء جدول الحقيقة من الدالة المنطقية</div>
+      <div class="sort-item" draggable="true" data-order="4"><span class="drag-handle">⠿</span>كتابة التعبير المبسّط من المجموعات</div>
+      <div class="sort-item" draggable="true" data-order="2"><span class="drag-handle">⠿</span>رسم خريطة كارنو وملء الخلايا من جدول الحقيقة</div>
+    </div>
+    <div class="q-feedback"></div>
+  </div>
+
+  <!-- Q7 TRUE/FALSE: Sequential Circuits -->
+  <div class="q-card" data-qid="7" data-type="tf" data-answer="true" data-points="10">
+    <div class="q-meta"><span class="q-num">07</span><span class="q-type">صح / خطأ</span><span class="q-points">10 نقاط</span></div>
+    <div class="q-text">الدوائر التسلسلية (Sequential Circuits) تختلف عن التجميعية بأنها تحتوي على ذاكرة (مثل Flip-Flops) وتعتمد على الحالة السابقة.</div>
+    <div class="tf-row">
+      <button class="tf-btn" data-val="true" onclick="selectTF(this,7)">✓ صح</button>
+      <button class="tf-btn" data-val="false" onclick="selectTF(this,7)">✗ خطأ</button>
+    </div>
+    <div class="q-feedback"></div>
+  </div>
+
+  <!-- Q8 MCQ: Hex to IP Scenario -->
+  <div class="q-card" data-qid="8" data-type="mcq" data-answer="c" data-points="10">
+    <div class="q-meta"><span class="q-num">08</span><span class="q-type">سيناريو إنتاج</span><span class="q-points">10 نقاط</span></div>
+    <div class="q-text">في سجلات الشبكة، ظهر عنوان IP بالصيغة السادس عشرية <code style="font-family:var(--mono);color:var(--accent)">0xC0A80101</code>. ما هو عنوان IPv4 المقابل؟</div>
+    <div class="options">
+      <label class="option"><input type="radio" name="q8" value="a"><span class="option-letter">أ</span>10.0.0.1</label>
+      <label class="option"><input type="radio" name="q8" value="b"><span class="option-letter">ب</span>192.168.1.0</label>
+      <label class="option"><input type="radio" name="q8" value="c"><span class="option-letter">ج</span>192.168.1.1</label>
+      <label class="option"><input type="radio" name="q8" value="d"><span class="option-letter">د</span>172.16.0.1</label>
+    </div>
+    <div class="q-feedback"></div>
+  </div>
+
+  <!-- Q9 FILL: Binary Addition -->
+  <div class="q-card" data-qid="9" data-type="fill" data-answer="1111" data-points="10">
+    <div class="q-meta"><span class="q-num">09</span><span class="q-type">أكمل الفراغ</span><span class="q-points">10 نقاط</span></div>
+    <div class="q-text">احسب ناتج جمع العددين الثنائيين التاليين: <code style="font-family:var(--mono);color:var(--accent)">1010 + 0101</code></div>
+    <div class="fill-wrap">
+      <input class="fill-input" id="fill9" type="text" maxlength="4" placeholder="اكتب النتيجة ثنائياً" autocomplete="off">
+    </div>
+    <div class="q-feedback"></div>
+  </div>
+
+  <!-- Q10 MCQ: Hex Usage -->
+  <div class="q-card" data-qid="10" data-type="mcq" data-answer="b" data-points="10">
+    <div class="q-meta"><span class="q-num">10</span><span class="q-type">اختيار من متعدد</span><span class="q-points">10 نقاط</span></div>
+    <div class="q-text">لماذا يُفضّل مهندسو الأنظمة استخدام النظام السادس عشري (Hex) بدلاً من الثنائي عند فحص عناوين الذاكرة؟</div>
+    <div class="options">
+      <label class="option"><input type="radio" name="q10" value="a"><span class="option-letter">أ</span>لأن الحواسيب لا تفهم النظام الثنائي مباشرة</label>
+      <label class="option"><input type="radio" name="q10" value="b"><span class="option-letter">ب</span>لأنه أكثر إيجازاً وقابلية للقراءة البشرية مع الحفاظ على ارتباطه المباشر بالثنائي</label>
+      <label class="option"><input type="radio" name="q10" value="c"><span class="option-letter">ج</span>لأن السادس عشري يحتوي على مزيد من القيم الممكنة</label>
+      <label class="option"><input type="radio" name="q10" value="d"><span class="option-letter">د</span>لأن النظام الثنائي لا يُستخدم في حسابات الذاكرة</label>
+    </div>
+    <div class="q-feedback"></div>
+  </div>
+
+  <div class="submit-wrap">
+    <button class="btn-submit" id="submitBtn" onclick="submitQuiz()">إرسال الاختبار والحصول على درجتي</button>
+    <p style="color:var(--muted);font-size:12px;margin-top:12px">تأكد من الإجابة على جميع الأسئلة الـ 10 قبل الإرسال</p>
+  </div>
+
+</div>
+
+<!-- RESULT SCREEN -->
+<div class="container">
+  <div class="result-screen" id="resultScreen">
+    <div class="score-ring">
+      <svg viewBox="0 0 120 120">
+        <circle class="ring-bg" cx="60" cy="60" r="50"/>
+        <circle class="ring-val" id="ringVal" cx="60" cy="60" r="50" stroke-dasharray="314" stroke-dashoffset="314"/>
+      </svg>
+      <div class="score-center">
+        <div class="score-num" id="scoreNum">0</div>
+        <div class="score-denom">/100</div>
+      </div>
+    </div>
+    <div class="result-grade" id="resultGrade"></div>
+    <div class="result-sub" id="resultSub"></div>
+    <div class="result-breakdown" id="breakdown"></div>
+    <button class="btn-retry" onclick="retryQuiz()">↺ إعادة الاختبار</button>
+  </div>
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────────────────────
+const answers = {};
+let submitted = false;
+
+// ─── MCQ ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.option input[type="radio"]').forEach(radio => {
+  radio.addEventListener('change', function(){
+    if(submitted) return;
+    const card = this.closest('.q-card');
+    const qid = card.dataset.qid;
+    card.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+    this.closest('.option').classList.add('selected');
+    answers[qid] = this.value;
+    updateProgress();
+  });
+});
+
+// ─── FILL ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.fill-input').forEach(inp => {
+  inp.addEventListener('input', function(){
+    if(submitted) return;
+    const card = this.closest('.q-card');
+    answers[card.dataset.qid] = this.value.trim().toUpperCase();
+    updateProgress();
+  });
+});
+
+// ─── TRUE/FALSE ───────────────────────────────────────────────────────────────
+function selectTF(btn, qid) {
+  if(submitted) return;
+  const card = btn.closest('.q-card');
+  card.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  answers[qid] = btn.dataset.val;
+  updateProgress();
+}
+
+// ─── MATCH ───────────────────────────────────────────────────────────────────
+['m4a','m4b','m4c','m4d'].forEach(id => {
+  const el = document.getElementById(id);
+  if(el) {
+    el.addEventListener('change', () => {
+      if(submitted) return;
+      answers[4] = {
+        a: document.getElementById('m4a').value,
+        b: document.getElementById('m4b').value,
+        c: document.getElementById('m4c').value,
+        d: document.getElementById('m4d').value
+      };
+      updateProgress();
+    });
+  }
+});
+
+// ─── DRAG SORT ────────────────────────────────────────────────────────────────
+let dragSrc = null;
+document.querySelectorAll('.sort-list').forEach(list => {
+  list.querySelectorAll('.sort-item').forEach(item => {
+    item.addEventListener('dragstart', function(e){
+      dragSrc = this;
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragend', function(){
+      this.classList.remove('dragging');
+    });
+    item.addEventListener('dragover', function(e){
+      e.preventDefault();
+      if(dragSrc && dragSrc !== this) {
+        const list = this.parentNode;
+        const items = [...list.querySelectorAll('.sort-item')];
+        const srcIdx = items.indexOf(dragSrc);
+        const tgtIdx = items.indexOf(this);
+        if(srcIdx < tgtIdx) list.insertBefore(dragSrc, this.nextSibling);
+        else list.insertBefore(dragSrc, this);
+      }
+    });
+    item.addEventListener('drop', function(e){ e.preventDefault(); });
+  });
+});
+
+// ─── PROGRESS ────────────────────────────────────────────────────────────────
+function countAnswered() {
+  let n = 0;
+  for(let qid=1; qid<=10; qid++) {
+    const v = answers[qid];
+    if(v !== undefined && v !== null && v !== '') {
+      if(typeof v === 'object') {
+        const vals = Object.values(v);
+        if(vals.some(x => x !== '')) n++;
+      } else n++;
+    }
+  }
+  return n;
+}
+function updateProgress() {
+  const n = countAnswered();
+  const pct = Math.round((n/10)*100);
+  document.getElementById('progressFill').style.width = pct+'%';
+  document.getElementById('progressLabel').textContent = n+' / 10';
+}
+
+// ─── SUBMIT ───────────────────────────────────────────────────────────────────
+const CORRECT = {
+  1: { ans: 'a', fb_ok: 'ممتاز! 101010 = 32 + 8 + 2 = 42', fb_err: 'الصحيح: أ (42) — 101010 = 2⁵ + 2³ + 2¹ = 32 + 8 + 2 = 42' },
+  2: { ans: 'FF', fb_ok: 'صحيح! 255 تعادل FF في السادس عشري.', fb_err: 'الصحيح: FF — 255 ÷ 16 = 15 والباقي 15، وكلاهما يمثل بـ F.' },
+  3: { ans: 'true', fb_ok: 'صحيح! هذا هو قانون دي مورغان الأول.', fb_err: 'خطأ — التعبيران متكافئان تماماً حسب قانون دي مورغان.' },
+  5: { ans: 'c', fb_ok: 'صحيح! خريطة كارنو تُستخدم لتبسيط التعبيرات وتقليل البوابات.', fb_err: 'الصحيح: ج — الهدف الأساسي هو تبسيط الدوائر وتقليل التكلفة.' },
+  7: { ans: 'true', fb_ok: 'صحيح! الدوائر التسلسلية تعتمد على الذاكرة.', fb_err: 'خطأ — الدوائر التسلسلية بالفعل تحتوي على ذاكرة عكس التجميعية.' },
+  8: { ans: 'c', fb_ok: 'صحيح! C0=192, A8=168, 01=1, 01=1.', fb_err: 'الصحيح: ج — 0xC0=192, 0xA8=168, 0x01=1, 0x01=1.' },
+  9: { ans: '1111', fb_ok: 'صحيح! 1010 (10) + 0101 (5) = 1111 (15).', fb_err: 'الصحيح: 1111 — جمع 10 + 5 يعطي 15 وهو 1111 ثنائياً.' },
+  10: { ans: 'b', fb_ok: 'صحيح! السادس عشري يختصر كل 4 بتات في رمز واحد.', fb_err: 'الصحيح: ب — السادس عشري أكثر إيجازاً وأسهل للقراءة البشرية.' }
+};
+
+function checkMatch4() {
+  const a = answers[4];
+  if(!a) return false;
+  return a.a === 'and' && a.b === 'or' && a.c === 'xor' && a.d === 'not';
+}
+
+function checkSort6() {
+  const items = [...document.querySelectorAll('#sort6 .sort-item')];
+  const userOrder = items.map(i => i.dataset.order);
+  return JSON.stringify(userOrder) === JSON.stringify(['1','2','3','4']);
+}
+
+function submitQuiz() {
+  submitted = true;
+  document.getElementById('submitBtn').disabled = true;
+
+  let totalScore = 0;
+  const sections = [];
+
+  // Grade MCQ / TF / FILL
+  for(const [qid, cfg] of Object.entries(CORRECT)) {
+    const card = document.querySelector(`.q-card[data-qid="${qid}"]`);
+    if(!card) continue;
+    const fb = card.querySelector('.q-feedback');
+    let correct = false;
+
+    if(card.dataset.type === 'fill') {
+      const inp = card.querySelector('.fill-input');
+      const userVal = (inp.value.trim().toUpperCase() || '').replace(/\s/g,'');
+      correct = userVal === cfg.ans;
+      inp.classList.add(correct ? 'correct-ans' : 'wrong-ans');
+    } else if(card.dataset.type === 'mcq') {
+      const userVal = answers[qid];
+      correct = userVal === cfg.ans;
+      card.querySelectorAll('.option').forEach(opt => {
+        const radio = opt.querySelector('input');
+        if(radio.value === cfg.ans) opt.classList.add('correct-ans');
+        else if(radio.value === userVal && !correct) opt.classList.add('wrong-ans');
+      });
+    } else if(card.dataset.type === 'tf') {
+      const userVal = answers[qid];
+      correct = userVal === cfg.ans;
+      card.querySelectorAll('.tf-btn').forEach(btn => {
+        if(btn.dataset.val === cfg.ans) btn.classList.add('correct-ans');
+        else if(btn.dataset.val === userVal && !correct) btn.classList.add('wrong-ans');
+      });
+    }
+
+    card.classList.add(correct ? 'correct' : 'wrong');
+    fb.textContent = correct ? '✓ ' + cfg.fb_ok : '✗ ' + cfg.fb_err;
+    fb.className = 'q-feedback show ' + (correct ? 'ok' : 'err');
+    if(correct) totalScore += 10;
+    sections.push({ qid, correct, pts: correct ? 10 : 0 });
+  }
+
+  // Match Q4
+  {
+    const card = document.querySelector('.q-card[data-qid="4"]');
+    const correct = checkMatch4();
+    const fb = card.querySelector('.q-feedback');
+    card.classList.add(correct ? 'correct' : 'wrong');
+    fb.textContent = correct ? '✓ طابقت جميع البوابات بشكل صحيح!' : '✗ الإجابة: AND (كلها 1)، OR (أحدها 1)، XOR (مختلفة)، NOT (عكس).';
+    fb.className = 'q-feedback show ' + (correct ? 'ok' : 'err');
+    if(correct) totalScore += 10;
+    sections.push({ qid: 4, correct, pts: correct ? 10 : 0 });
+  }
+
+  // Sort Q6
+  {
+    const card = document.querySelector('.q-card[data-qid="6"]');
+    const correct = checkSort6();
+    const fb = card.querySelector('.q-feedback');
+    card.classList.add(correct ? 'correct' : 'wrong');
+    fb.textContent = correct ? '✓ الترتيب صحيح: جدول الحقيقة → رسم الخريطة → التجميع → التعبير.' : '✗ الترتيب: (1) جدول الحقيقة (2) رسم الخريطة (3) التجميع (4) التعبير.';
+    fb.className = 'q-feedback show ' + (correct ? 'ok' : 'err');
+    if(correct) totalScore += 10;
+    sections.push({ qid: 6, correct, pts: correct ? 10 : 0 });
+  }
+
+  showResult(totalScore, sections);
+
+  // =====================================================================
+  // القاعدة الأساسية: إرسال النتيجة إلى النظام باستخدام الدالة المطلوبة
+  // =====================================================================
+  if (typeof window.submitScore === 'function') {
+    window.submitScore(totalScore);
+  } else {
+    console.log("تم حساب النتيجة: " + totalScore + " (دالة window.submitScore سيتم استدعاؤها في بيئتك)");
+  }
+}
+
+// ─── RESULT DISPLAY ───────────────────────────────────────────────────────────
+function showResult(score, sections) {
+  document.getElementById('quizContainer').style.display = 'none';
+  const rs = document.getElementById('resultScreen');
+  rs.classList.add('show');
+
+  const circumference = 314;
+  const offset = circumference - (score / 100) * circumference;
+  const ring = document.getElementById('ringVal');
+  const color = score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#ef4444';
+  ring.style.stroke = color;
+  setTimeout(() => { ring.style.strokeDashoffset = offset; }, 100);
+
+  let n = 0;
+  const numEl = document.getElementById('scoreNum');
+  numEl.style.color = color;
+  const timer = setInterval(() => {
+    n = Math.min(n + 2, score);
+    numEl.textContent = n;
+    if(n >= score) clearInterval(timer);
+  }, 20);
+
+  const gradeEl = document.getElementById('resultGrade');
+  const subEl   = document.getElementById('resultSub');
+  if(score >= 90) { gradeEl.textContent = '🏆 ممتاز'; gradeEl.style.color = '#22c55e'; subEl.textContent = 'أداء استثنائي وفهم عميق للمنطق الرقمي.'; }
+  else if(score >= 70) { gradeEl.textContent = '⭐ جيد جداً'; gradeEl.style.color = '#4f8ef7'; subEl.textContent = 'فهم متين للأساسيات مع بعض الأخطاء البسيطة.'; }
+  else if(score >= 50) { gradeEl.textContent = '✔ مقبول'; gradeEl.style.color = '#f59e0b'; subEl.textContent = 'اجتزت الاختبار، لكن يُنصح بمراجعة الأخطاء.'; }
+  else { gradeEl.textContent = '📚 يحتاج مراجعة'; gradeEl.style.color = '#ef4444'; subEl.textContent = 'ننصح بمراجعة وحدة المنطق الرقمي وأنظمة الترقيم.'; }
+
+  const sectionNames = {
+    1:'التحويل الثنائي للعشري', 2:'التحويل للسادس عشري', 3:'قانون دي مورغان',
+    4:'البوابات المنطقية', 5:'خرائط كارنو', 6:'خطوات K-map',
+    7:'الدوائر التسلسلية', 8:'Hex إلى IPv4', 9:'الجمع الثنائي', 10:'استخدام Hex'
+  };
+
+  const bd = document.getElementById('breakdown');
+  bd.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">تفصيل الدرجات</div>';
+  sections.sort((a,b) => a.qid - b.qid).forEach(s => {
+    bd.innerHTML += `
+      <div class="breakdown-row">
+        <span>س${s.qid}: ${sectionNames[s.qid] || ''}</span>
+        <span class="pts ${s.correct?'ok':'err'}">${s.correct ? '+10 ✓' : '0 ✗'}</span>
+      </div>`;
+  });
+  bd.innerHTML += `<div class="breakdown-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>المجموع</span><span class="pts" style="color:${color}">${score} / 100</span></div>`;
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ─── RETRY ─────────────────────────────────────────────────────────────────────
+function retryQuiz() { location.reload(); }
+</script>
+</body>
+</html>

@@ -31,7 +31,7 @@
  *   - lib/v4-protocol-tags.ts    (advanceLessonPointer stays within a unit)
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   db,
   v4LevelsTable,

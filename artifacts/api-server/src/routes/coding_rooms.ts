@@ -1,7 +1,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getRoomOnlineCount } from "../lib/coding-room-ws";
+import { getRoomOnlineCount, isUserOnlineInRoom } from "../lib/coding-room-ws";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
+import { requireSameOriginCsrf } from "../lib/csrf";
+
+const ROOM_TICK_COST_USD = 0.001; // 1 gem per 2-minute tick
 
 const router = Router();
 
@@ -187,6 +191,10 @@ router.get("/coding-rooms/:roomId", requireUser, async (req: any, res: any) => {
     );
 
     const myMember = (members.rows as any[]).find((m) => m.user_id === userId);
+    // Only members (any status) and the host may see room details
+    if (!myMember) {
+      return res.status(403).json({ error: "لست عضواً في هذه الغرفة" });
+    }
 
     return res.json({
       room: { ...room, languages: Array.isArray(room.languages) ? room.languages : [] },
@@ -278,10 +286,14 @@ router.post("/coding-rooms/:roomId/admit", requireUser, async (req: any, res: an
       return res.status(403).json({ error: "فقط المشرف يستطيع قبول الطلبات" });
     }
 
-    await db.execute(
+    // Only admit users who are currently waiting (idempotent-safe conditional update)
+    const admitResult = await db.execute(
       sql`UPDATE coding_room_members SET status = 'joined', updated_at = NOW()
-          WHERE room_id = ${roomId} AND user_id = ${targetUserId}`
+          WHERE room_id = ${roomId} AND user_id = ${targetUserId} AND status = 'waiting'`
     );
+    if (!admitResult.rowCount) {
+      return res.status(409).json({ error: "لا يوجد طلب انتظار لهذا المستخدم" });
+    }
 
     return res.json({ ok: true });
   } catch (err: any) {
@@ -303,9 +315,10 @@ router.post("/coding-rooms/:roomId/reject", requireUser, async (req: any, res: a
       return res.status(403).json({ error: "فقط المشرف يستطيع رفض الطلبات" });
     }
 
+    // Only reject users who are currently waiting
     await db.execute(
       sql`UPDATE coding_room_members SET status = 'rejected', updated_at = NOW()
-          WHERE room_id = ${roomId} AND user_id = ${targetUserId}`
+          WHERE room_id = ${roomId} AND user_id = ${targetUserId} AND status = 'waiting'`
     );
 
     return res.json({ ok: true });
@@ -363,8 +376,8 @@ router.get("/coding-rooms/:roomId/files", requireUser, async (req: any, res: any
       sql`SELECT status FROM coding_room_members
           WHERE room_id = ${roomId} AND user_id = ${userId} LIMIT 1`
     );
-    if (!memberCheck.rows.length) {
-      return res.status(403).json({ error: "لست عضواً في هذه الغرفة" });
+    if (!memberCheck.rows.length || (memberCheck.rows[0] as any).status !== "joined") {
+      return res.status(403).json({ error: "لست عضواً نشطاً في هذه الغرفة" });
     }
 
     const files = await db.execute(
@@ -389,8 +402,8 @@ router.get("/coding-rooms/:roomId/download", requireUser, async (req: any, res: 
       sql`SELECT status FROM coding_room_members
           WHERE room_id = ${roomId} AND user_id = ${userId} LIMIT 1`
     );
-    if (!memberCheck.rows.length) {
-      return res.status(403).json({ error: "لست عضواً في هذه الغرفة" });
+    if (!memberCheck.rows.length || (memberCheck.rows[0] as any).status !== "joined") {
+      return res.status(403).json({ error: "لست عضواً نشطاً في هذه الغرفة" });
     }
 
     const files = await db.execute(
@@ -457,6 +470,60 @@ router.post("/coding-rooms/:roomId/reopen", requireUser, async (req: any, res: a
     return res.json({ newRoomId });
   } catch (err: any) {
     return res.status(500).json({ error: "فشل إعادة فتح الغرفة", detail: err?.message });
+  }
+});
+
+// ── POST /api/coding-rooms/:roomId/tick — charge 1 gem per 2-minute presence ──
+router.post("/coding-rooms/:roomId/tick", requireUser, requireSameOriginCsrf, async (req: Request, res: Response): Promise<void> => {
+  const userId = ((req as any).session as any).userId as number;
+  const roomId = Number(req.params.roomId);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid roomId" }); return; }
+
+  try {
+    // Live presence: user must be CONNECTED to the room's WebSocket right now.
+    // The durable membership row alone is not proof of presence.
+    if (!isUserOnlineInRoom(roomId, userId)) {
+      res.status(403).json({ error: "لست متصلاً بهذه الغرفة حالياً" });
+      return;
+    }
+
+    // Auto-pick highest-balance active wallet for this user
+    const wallets = await db.execute(sql`
+      SELECT subject_id AS "subjectId"
+      FROM student_gem_wallets
+      WHERE user_id = ${userId}
+        AND gems_balance > 0
+        AND (expires_at IS NULL OR expires_at > NOW())
+      ORDER BY gems_balance DESC
+      LIMIT 1
+    `);
+    if ((wallets.rows?.length ?? 0) === 0) {
+      // No balance — silent pass (don't block access)
+      res.json({ ok: true, charged: false, reason: "no_wallet" });
+      return;
+    }
+    const subjectId = String((wallets.rows[0] as any).subjectId);
+
+    // Bucket = 2-minute window; same bucket = idempotent charge
+    const bucket = Math.floor(Date.now() / 120_000);
+    const charge = await chargeV4Ai({
+      requestId: `coding-room:${userId}:${roomId}:${bucket}`,
+      userId,
+      subjectId,
+      costUsd: ROOM_TICK_COST_USD,
+      source: "v4_coding_room",
+    });
+
+    // Fail-closed on transient DB errors: report retryable failure instead of
+    // silently losing a billing tick (chargeV4Ai fail-closed pattern).
+    if ((charge as any).error) {
+      res.status(503).json({ error: "تعذّر الخصم مؤقتاً — سيُعاد لاحقاً", retryable: true });
+      return;
+    }
+
+    res.json({ ok: true, charged: charge.charged, gemsBalance: charge.balanceAfter, subjectId });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Internal error" });
   }
 });
 

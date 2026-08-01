@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRoute, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, RotateCcw, ChevronRight, Star } from "lucide-react";
+import { ArrowLeft, RotateCcw, ChevronRight, Star, Gem } from "lucide-react";
 import { Link } from "wouter";
 import {
   getLessonById,
@@ -553,7 +553,8 @@ function StarDisplay({ count }: { count: 1 | 2 | 3 }) {
   );
 }
 
-type Phase = "idle" | "active" | "complete";
+type Phase = "idle" | "active" | "paying" | "complete";
+type WalletInfo = { subjectId: string; gemsBalance: number; specialtyName: string | null; specialtyIcon: string | null };
 
 export default function TypingLesson() {
   const [, params] = useRoute("/typing/lesson/:id");
@@ -593,6 +594,11 @@ export default function TypingLesson() {
   const [saved, setSaved] = useState(false);
   const wpmTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Gem deduction modal ──────────────────────────────────────────────────────
+  type GemModal = { wallets: WalletInfo[]; loading: boolean; error: string | null; charging: boolean; selectedWallet: string | null };
+  const [gemModal, setGemModal] = useState<GemModal | null>(null);
+  const [pendingResult, setPendingResult] = useState<{ lessonId: number; stars: 1|2|3; wpm: number; accuracy: number } | null>(null);
+
   const [showIntro, setShowIntro] = useState(true);
   const [showTip, setShowTip] = useState(true);
   const [guidanceMsg, setGuidanceMsg] = useState<{ text: string; icon: string; kind: "warn" | "ok" } | null>(null);
@@ -615,6 +621,8 @@ export default function TypingLesson() {
     setShowIntro(true);
     setShowTip(true);
     setGuidanceMsg(null);
+    setGemModal(null);
+    setPendingResult(null);
     lastGuidanceAt.current = 0;
     guidanceCycle.current = 0;
     if (wpmTimer.current) clearInterval(wpmTimer.current);
@@ -651,7 +659,7 @@ export default function TypingLesson() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (phase === "complete") return;
+      if (phase === "complete" || phase === "paying") return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (showIntro) { setShowIntro(false); return; }
       resumeAudio();
@@ -700,9 +708,11 @@ export default function TypingLesson() {
         setWpm(finalWpm);
         setAccuracy(finalAccuracy);
         setStars(finalStars);
-        setPhase("complete");
         playLessonComplete();
-        saveProgress(id, finalStars, finalWpm, finalAccuracy);
+        // Show gem payment modal before completing
+        setPhase("paying");
+        setPendingResult({ lessonId: id, stars: finalStars, wpm: finalWpm, accuracy: finalAccuracy });
+        fetchWalletsAndShowModal();
       }
     };
 
@@ -720,6 +730,44 @@ export default function TypingLesson() {
       });
       setSaved(true);
     } catch {}
+  }
+
+  async function fetchWalletsAndShowModal() {
+    setGemModal({ wallets: [], loading: true, error: null, charging: false, selectedWallet: null });
+    try {
+      const r = await fetch("/api/typing/wallets", { credentials: "include" });
+      if (!r.ok) throw new Error("تعذّر تحميل المحافظ");
+      const { wallets }: { wallets: WalletInfo[] } = await r.json();
+      const autoSelect = wallets.length === 1 ? wallets[0].subjectId : null;
+      setGemModal({ wallets, loading: false, error: null, charging: false, selectedWallet: autoSelect });
+    } catch (e: any) {
+      setGemModal({ wallets: [], loading: false, error: e?.message ?? "خطأ في تحميل المحافظ", charging: false, selectedWallet: null });
+    }
+  }
+
+  async function confirmGemCharge() {
+    if (!pendingResult || !gemModal?.selectedWallet) return;
+    setGemModal(prev => prev ? { ...prev, charging: true, error: null } : null);
+    try {
+      const r = await fetch("/api/typing/charge-lesson", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
+        credentials: "include",
+        body: JSON.stringify({ lessonId: pendingResult.lessonId, subjectId: gemModal.selectedWallet }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setGemModal(prev => prev ? { ...prev, charging: false, error: d.error ?? "فشل الخصم" } : null);
+        return;
+      }
+      // Charge OK → show completion screen
+      setGemModal(null);
+      setPhase("complete");
+      saveProgress(pendingResult.lessonId, pendingResult.stars, pendingResult.wpm, pendingResult.accuracy);
+      setPendingResult(null);
+    } catch {
+      setGemModal(prev => prev ? { ...prev, charging: false, error: "خطأ في الاتصال بالخادم" } : null);
+    }
   }
 
   if (!lesson) {
@@ -945,6 +993,102 @@ export default function TypingLesson() {
           </div>
         </div>
       </div>
+
+      {/* ── Gem Payment Modal ─────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {gemModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", direction: "rtl" }}
+          >
+            <motion.div
+              initial={{ scale: 0.88, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 320, damping: 24 }}
+              className="rounded-3xl p-6 w-full max-w-sm flex flex-col gap-4"
+              style={{ background: "linear-gradient(145deg,#0f1220,#0a0d1a)", border: "1px solid rgba(245,158,11,0.2)", boxShadow: "0 0 60px rgba(245,158,11,0.1), 0 20px 60px rgba(0,0,0,0.5)" }}
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0">
+                  <Gem className="w-5 h-5 text-black" />
+                </div>
+                <div>
+                  <p className="font-black text-white text-sm">أتممت الدرس! 🎉</p>
+                  <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>اختر المادة التي تخصم منها الجواهر</p>
+                </div>
+              </div>
+
+              {/* Cost badge */}
+              <div className="rounded-xl px-4 py-2.5 flex items-center gap-2.5" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.18)" }}>
+                <Gem className="w-4 h-4 text-amber-400 shrink-0" />
+                <p className="text-sm font-bold text-amber-200">تكلفة هذا الدرس: <span className="text-amber-400">4 جواهر</span></p>
+              </div>
+
+              {/* Wallet list */}
+              {gemModal.loading ? (
+                <div className="flex justify-center py-4">
+                  <div className="w-7 h-7 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : gemModal.wallets.length === 0 ? (
+                <div className="rounded-xl px-4 py-3 text-sm text-rose-300 text-center" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                  لا يوجد رصيد كافٍ في أي مادة. تحتاج على الأقل 4 جواهر.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {gemModal.wallets.length > 1 && <p className="text-xs text-white/40 mb-1">اختر المادة:</p>}
+                  {gemModal.wallets.map(w => (
+                    <button
+                      key={w.subjectId}
+                      onClick={() => setGemModal(prev => prev ? { ...prev, selectedWallet: w.subjectId } : null)}
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl text-right transition-all"
+                      style={{
+                        background: gemModal.selectedWallet === w.subjectId ? "rgba(245,158,11,0.15)" : "rgba(255,255,255,0.04)",
+                        border: `1px solid ${gemModal.selectedWallet === w.subjectId ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.08)"}`,
+                      }}
+                    >
+                      <span className="text-lg">{w.specialtyIcon ?? "📚"}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{w.specialtyName ?? w.subjectId}</p>
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{w.gemsBalance} جوهرة متبقية</p>
+                      </div>
+                      {gemModal.selectedWallet === w.subjectId && <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Error */}
+              {gemModal.error && (
+                <p className="text-xs text-rose-300 text-center px-2" style={{ direction: "rtl" }}>{gemModal.error}</p>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2 mt-1">
+                <button
+                  disabled={!gemModal.selectedWallet || gemModal.charging || gemModal.loading}
+                  onClick={confirmGemCharge}
+                  className="flex-1 py-2.5 rounded-xl font-black text-sm text-black disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}
+                >
+                  {gemModal.charging ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> جاري الخصم...</> : "تأكيد وحفظ الدرس"}
+                </button>
+                <button
+                  disabled={gemModal.charging}
+                  onClick={reset}
+                  className="px-4 py-2.5 rounded-xl font-bold text-sm disabled:opacity-50"
+                  style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.08)" }}
+                >
+                  إلغاء
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {phase === "complete" && (

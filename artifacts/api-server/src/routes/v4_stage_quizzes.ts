@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// v4 Stage Quizzes (اختبارات المستويات) — admin CRUD + student HTML view
+// v4 Stage Quizzes (اختبارات المرحلة) — admin CRUD + student HTML view + AI generate
 //
 //   GET    /api/v4/admin/stage-quizzes          — list all (admin)
 //   POST   /api/v4/admin/stage-quizzes          — create / upsert (admin)
@@ -7,6 +7,7 @@
 //   DELETE /api/v4/admin/stage-quizzes/:id      — delete (admin)
 //   GET    /api/v4/stage-quizzes/:id/view       — serve raw HTML (auth)
 //   GET    /api/v4/stage-quizzes                — list for a specialty (auth)
+//   POST   /api/v4/stage-quizzes/generate       — AI auto-generate & cache (auth)
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { eq } from "drizzle-orm";
@@ -14,7 +15,16 @@ import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
+import { dedupeInflight, HttpError } from "../lib/inflight";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
+
+const QUIZ_GEN_COST_USD = 0.020; // 20 gems
 import { validateQuizHtml } from "../lib/validate-quiz-html";
+import {
+  extractStageContent,
+  generateStageQuizHtml,
+  GenerateGeminiError,
+} from "../lib/quiz-html-gen";
 
 const router: IRouter = Router();
 
@@ -176,6 +186,91 @@ router.get("/v4/stage-quizzes", requireAuth, async (req, res): Promise<void> => 
   } catch (err: any) {
     logger.error({ err: err?.message }, "stage-quizzes: student list failed");
     res.status(500).json({ error: err?.message ?? "db error" });
+  }
+});
+
+// ── AI auto-generate ──────────────────────────────────────────────────────────
+// Idempotent: returns cached quiz if one already exists for this stage.
+
+router.post("/v4/stage-quizzes/generate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = getUserId(req)!;
+  const { specialtySlug, levelIndex, stageIndex } = req.body as {
+    specialtySlug?: string;
+    levelIndex?: number;
+    stageIndex?: number;
+  };
+  if (!specialtySlug || levelIndex == null || stageIndex == null) {
+    res.status(400).json({ error: "specialtySlug و levelIndex و stageIndex مطلوبة" });
+    return;
+  }
+  const li = Number(levelIndex);
+  const si = Number(stageIndex);
+
+  try {
+    const outcome = await dedupeInflight(
+      `stage-quiz:${specialtySlug}:${li}:${si}`,
+      async (): Promise<{ quizId: number; cached: boolean }> => {
+        // 1. Cached quiz → return immediately (no charge — globally shared)
+        const cached = await db.execute(
+          sql`SELECT id FROM v4_stage_quizzes
+              WHERE specialty_slug = ${specialtySlug}
+                AND level_index    = ${li}
+                AND stage_index    = ${si}`
+        );
+        if (cached.rows.length > 0) {
+          return { quizId: Number(cached.rows[0].id), cached: true };
+        }
+
+        // 2. Charge 20 gems flat before AI generation (cache-miss path only)
+        const charge = await chargeV4Ai({
+          requestId: `quiz-gen:stage:${specialtySlug}:${li}:${si}:${userId}`,
+          userId,
+          subjectId: specialtySlug,
+          costUsd: QUIZ_GEN_COST_USD,
+          source: "v4_ai_quiz",
+        });
+        if (charge.error) {
+          throw new HttpError(503, "رصيدك من الجواهر غير كافٍ لتوليد الاختبار");
+        }
+
+        // 3. Extract stage content
+        const stageContent = await extractStageContent(specialtySlug, li, si).catch((err: any) => {
+          logger.error({ err: err?.message }, "stage-quiz generate: content extraction failed");
+          throw new HttpError(500, "خطأ في استخراج محتوى المرحلة");
+        });
+        if (!stageContent) {
+          throw new HttpError(404, "المرحلة غير موجودة أو لا يوجد منهج منشور لهذا التخصص");
+        }
+
+        // 4. Generate via AI (validates internally; throws on failure)
+        const htmlContent = await generateStageQuizHtml(stageContent);
+
+        // 4. Save (upsert — race-safe)
+        const title = `${stageContent.name} — اختبار المرحلة`;
+        const result = await db.execute(
+          sql`INSERT INTO v4_stage_quizzes (specialty_slug, level_index, stage_index, title, html_content)
+              VALUES (${specialtySlug}, ${li}, ${si}, ${title}, ${htmlContent})
+              ON CONFLICT (specialty_slug, level_index, stage_index)
+              DO UPDATE SET html_content = EXCLUDED.html_content,
+                            title        = EXCLUDED.title,
+                            updated_at   = NOW()
+              RETURNING id`
+        );
+        return { quizId: Number(result.rows[0].id), cached: false };
+      }
+    );
+    res.json(outcome);
+  } catch (err: any) {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    logger.error({ err: err?.message }, "stage-quiz generate: failed");
+    if (err instanceof GenerateGeminiError && err.creditsExhausted) {
+      res.status(503).json({ error: "خدمة الذكاء الاصطناعي متوقفة مؤقتاً، يرجى المحاولة لاحقاً" });
+    } else {
+      res.status(500).json({ error: "فشل توليد الاختبار، يرجى المحاولة مرة أخرى" });
+    }
   }
 });
 

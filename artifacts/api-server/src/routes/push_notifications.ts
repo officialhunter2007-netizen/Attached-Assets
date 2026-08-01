@@ -274,16 +274,91 @@ router.post("/admin/notifications/send", async (req: any, res: any): Promise<any
       });
     }
 
-    // Log the sent notification
-    await db.execute(sql`
-      INSERT INTO notification_log (admin_id, title, body, url, target_filter, sent_count, failed_count)
-      VALUES (${userId}, ${title}, ${body}, ${url}, ${JSON.stringify(filterParams)}::jsonb, ${totalSent}, ${totalFailed})
-    `).catch((e: any) => console.warn("[push] log insert failed:", e?.message));
+    // Log the sent notification — capture the id for in-app linking
+    let notifLogId: number | null = null;
+    try {
+      const logResult = await db.execute(sql`
+        INSERT INTO notification_log (admin_id, title, body, url, target_filter, sent_count, failed_count)
+        VALUES (${userId}, ${title}, ${body}, ${url}, ${JSON.stringify(filterParams)}::jsonb, ${totalSent}, ${totalFailed})
+        RETURNING id
+      `);
+      notifLogId = ((logResult as any).rows?.[0]?.id ?? null) as number | null;
+    } catch (e: any) { console.warn("[push] log insert failed:", e?.message); }
+
+    // ── In-app notifications: store in notifications table for each targeted user ──
+    try {
+      const esc = (s: string) => s.replace(/'/g, "''");
+      const safeTitle = esc(title);
+      const safeBody  = esc(body);
+      const urlLabel  = typeof req.body?.urlLabel === "string" ? req.body.urlLabel.trim().slice(0, 60) : null;
+      const safeData  = esc(JSON.stringify({ url, type: "admin_push", ...(urlLabel ? { urlLabel } : {}) }));
+      const logIdSql  = notifLogId != null ? String(notifLogId) : "NULL";
+
+      // expires_at: from expiresAfterHours (optional)
+      const expiresAfterHours = typeof req.body?.expiresAfterHours === "number"
+        ? Math.max(1, Math.min(8760, Math.floor(req.body.expiresAfterHours))) : null;
+      const expiresSql = expiresAfterHours != null
+        ? `NOW() + INTERVAL '${expiresAfterHours} hours'` : "NULL";
+
+      const inAppCols = `(user_id, type, title, body, data, notification_log_id, expires_at)`;
+
+      let notifSql: string | null = null;
+      if (targetType === "all") {
+        notifSql = `
+          INSERT INTO notifications ${inAppCols}
+          SELECT id, 'admin_push', '${safeTitle}', '${safeBody}', '${safeData}'::jsonb, ${logIdSql}, ${expiresSql}
+          FROM users
+        `;
+      } else if (targetType === "users") {
+        const ids = (Array.isArray(userIds) ? userIds : String(userIds).split(","))
+          .map(Number).filter((n: number) => !isNaN(n) && n > 0);
+        if (ids.length > 0) {
+          notifSql = `
+            INSERT INTO notifications ${inAppCols}
+            SELECT unnest(ARRAY[${ids.join(",")}]::int[]), 'admin_push', '${safeTitle}', '${safeBody}', '${safeData}'::jsonb, ${logIdSql}, ${expiresSql}
+          `;
+        }
+      } else if (where) {
+        notifSql = `
+          INSERT INTO notifications ${inAppCols}
+          SELECT DISTINCT user_id, 'admin_push', '${safeTitle}', '${safeBody}', '${safeData}'::jsonb, ${logIdSql}, ${expiresSql}
+          FROM push_subscriptions WHERE ${where}
+        `;
+      }
+
+      if (notifSql) {
+        await db.execute(sql.raw(notifSql)).catch((e: any) =>
+          console.warn("[push] in-app insert failed:", e?.message)
+        );
+      }
+    } catch (inAppErr: any) {
+      console.warn("[push] in-app notifications error:", inAppErr?.message);
+    }
 
     return res.json({ ok: true, sent: totalSent, failed: totalFailed, vapidSent, expoSent });
   } catch (err: any) {
     console.error("[push] send error:", err?.message);
     return res.status(500).json({ error: "فشل الإرسال: " + err?.message });
+  }
+});
+
+// ── POST /api/admin/notifications/:logId/cancel ───────────────────────────────
+router.post("/admin/notifications/:logId/cancel", async (req: any, res: any): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!(await isAdmin(userId))) return res.status(403).json({ error: "Forbidden" });
+  if (!csrfGuard(req, res)) return;
+  const logId = parseInt(req.params.logId, 10);
+  if (isNaN(logId)) return res.status(400).json({ error: "logId غير صالح" });
+  try {
+    await db.execute(sql`
+      UPDATE notifications SET expires_at = NOW()
+      WHERE notification_log_id = ${logId}
+        AND (expires_at IS NULL OR expires_at > NOW())
+    `);
+    return res.json({ ok: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message });
   }
 });
 
@@ -368,6 +443,44 @@ function buildWhereClause(p: FilterParams): string {
       return ids.length > 0 ? `user_id IN (${ids.join(",")})` : "1=0";
     default:
       return "";
+  }
+}
+
+// ── sendVapidToStudent — Web Push لطالب بعينه (best-effort) ─────────────────
+export async function sendVapidToStudent(
+  studentUserId: number,
+  title: string,
+  body: string,
+  url = "/subscription",
+): Promise<void> {
+  if (!vapidReady) return;
+  try {
+    const rows = await db.execute(sql`
+      SELECT endpoint, p256dh, auth
+      FROM push_subscriptions
+      WHERE user_id = ${studentUserId}
+    `);
+    const subs = ((rows as any).rows ?? rows) as { endpoint: string; p256dh: string; auth: string }[];
+    if (subs.length === 0) return;
+    const payload = JSON.stringify({ title, body, url, icon: "/favicon.svg", badge: "/favicon.svg" });
+    await Promise.allSettled(
+      subs.map(async (s) => {
+        const ep = s.endpoint;
+        try {
+          await webpush.sendNotification(
+            { endpoint: ep, keys: { p256dh: s.p256dh, auth: s.auth } },
+            payload,
+            { TTL: 86400 },
+          );
+        } catch (err: any) {
+          if (err?.statusCode === 410 || err?.statusCode === 404) {
+            await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${ep}`).catch(() => {});
+          }
+        }
+      }),
+    );
+  } catch (e: any) {
+    console.warn("[push] sendVapidToStudent failed:", e?.message);
   }
 }
 

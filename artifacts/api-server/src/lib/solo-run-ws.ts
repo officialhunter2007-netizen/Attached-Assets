@@ -7,7 +7,83 @@ import * as path from "path";
 import * as os from "os";
 import { verifySession } from "./session";
 
-const INTERACTIVE_LANGS = new Set(["python", "javascript", "bash", "c", "cpp"]);
+const INTERACTIVE_LANGS = new Set(["python", "javascript", "typescript", "bash", "c", "cpp", "java"]);
+
+// ── Resource limits ──────────────────────────────────────────────────────────
+// Applied to every spawned process via bash ulimit before exec.
+//   -t 30    → 30 CPU seconds (kills infinite loops)
+//   -f 10240 → max 10 MB file write (prevents disk fill)
+// Intentionally no -v (virtual memory) or -u (max-procs):
+//   -v breaks Python/Node startup (shared libs need large virtual space)
+//   -u is per-user shared with ALL processes, breaks gcc forks under load
+// Wall-clock protection comes from WS_EXEC_TIMEOUT_MS (30s timeout below).
+const ULIMIT_PREFIX = "ulimit -t 30 -f 10240 2>/dev/null";
+
+// ── Concurrent execution cap ──────────────────────────────────────────────────
+let activeWsExecutions = 0;
+const MAX_WS_CONCURRENT = 80;   // hard ceiling across all students
+
+// ── Per-process wall-clock timeout ───────────────────────────────────────────
+const WS_EXEC_TIMEOUT_MS = 30_000;  // 30 seconds
+const SHARED_JAVA_DIR = "/home/runner/workspace/.javalib";
+
+/**
+ * Auto-detect C/C++ #include statements → extra linker flags for system libs
+ * already present in the Nix store.
+ */
+function detectCLinkerFlags(code: string): string[] {
+  const flags = new Set<string>();
+  const includes = [...code.matchAll(/#\s*include\s*[<"]([^>"]+)[>"]/g)]
+    .map(m => m[1].toLowerCase().split("/")[0]);
+  for (const top of includes) {
+    if (top === "zlib.h")                          flags.add("-lz");
+    if (top === "png.h")                           flags.add("-lpng");
+    if (top === "bzlib.h")                         flags.add("-lbz2");
+    if (top === "gmp.h")                           flags.add("-lgmp");
+    if (top === "gmpxx.h")                         { flags.add("-lgmp"); flags.add("-lgmpxx"); }
+    if (top === "sqlite3.h")                       flags.add("-lsqlite3");
+    if (top === "curl")                            flags.add("-lcurl");
+    if (top === "openssl")                         { flags.add("-lssl"); flags.add("-lcrypto"); }
+    if (top === "ncurses.h" || top === "curses.h") flags.add("-lncurses");
+    if (top === "readline")                        flags.add("-lreadline");
+    if (top === "ft2build.h" || top === "freetype2") flags.add("-lfreetype");
+    if (top === "uuid" || top === "uuid.h")        flags.add("-luuid");
+  }
+  return Array.from(flags);
+}
+
+/**
+ * Parse `// @maven group:artifact:version` comments and ensure the JARs
+ * are present in SHARED_JAVA_DIR (download from Maven Central if not cached).
+ */
+async function ensureMavenJarsWs(
+  code: string,
+  onProgress: (msg: string) => void,
+): Promise<void> {
+  const coords = [...code.matchAll(/\/\/\s*@maven\s+([^\s]+)/g)].map(m => m[1]);
+  if (!coords.length) return;
+  try { fs.mkdirSync(SHARED_JAVA_DIR, { recursive: true }); } catch {}
+  for (const coord of coords) {
+    const parts = coord.split(":");
+    if (parts.length < 3) continue;
+    const [group, artifact, version] = parts;
+    const jarName = `${artifact}-${version}.jar`;
+    const jarPath = path.join(SHARED_JAVA_DIR, jarName);
+    if (fs.existsSync(jarPath)) continue;
+    onProgress(`📦 تنزيل ${jarName} من Maven Central...\n`);
+    const groupPath = group.replace(/\./g, "/");
+    const url = `https://repo1.maven.org/maven2/${groupPath}/${artifact}/${version}/${jarName}`;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) } as any);
+      if (!resp.ok) { onProgress(`❌ فشل تنزيل ${jarName} (${resp.status})\n`); continue; }
+      const buf = Buffer.from(await resp.arrayBuffer());
+      fs.writeFileSync(jarPath, buf);
+      onProgress(`✅ تم تنزيل ${jarName}\n`);
+    } catch (e: any) {
+      onProgress(`❌ خطأ في تنزيل ${jarName}: ${e.message}\n`);
+    }
+  }
+}
 const VALID_PKG_NAME = /^[a-zA-Z0-9]([a-zA-Z0-9\-_.]*[a-zA-Z0-9])?(\[[\w,]+\])?$/;
 const SHARED_PYLIB_DIR = process.env.NUKHBA_PYLIB_DIR
   ?? (() => {
@@ -110,7 +186,7 @@ export function initSoloRunWss(server: Server) {
         }
       }
 
-      ws.on("message", (raw) => {
+      ws.on("message", async (raw) => {
         let msg: any;
         try { msg = JSON.parse(raw.toString()); } catch { return; }
 
@@ -134,36 +210,97 @@ export function initSoloRunWss(server: Server) {
             fs.writeFileSync(dest, f.content ?? "");
           }
 
+          // For Java: download @maven JARs before spawning
+          if (language === "java") {
+            const javaEntry = files.find(f => f.path === entryFile)?.content ?? "";
+            await ensureMavenJarsWs(javaEntry, (m) => send({ type: "output", data: m }));
+          }
+
           let cmd: string, args: string[];
           const entryAbs = path.join(tmpDir, entryFile);
           const safeDir = JSON.stringify(tmpDir);
+
+          // Build extra linker flags from #include analysis for C/C++
+          const entryContent = files.find(f => f.path === entryFile)?.content ?? "";
+          const extraCFlags = (language === "c" || language === "cpp")
+            ? detectCLinkerFlags(entryContent).join(" ")
+            : "";
+
+          const javaCP = `${tmpDir}:${SHARED_JAVA_DIR}/*`;
+          const safeCP = JSON.stringify(javaCP);
+
+          // ── Concurrent cap ──────────────────────────────────────────────
+          if (activeWsExecutions >= MAX_WS_CONCURRENT) {
+            send({ type: "output", data: "⏳ الخوادم مشغولة الآن — حاول مرة أخرى بعد لحظة\n" });
+            send({ type: "exit", exitCode: 1 });
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+            return;
+          }
+          activeWsExecutions++;
+
           switch (language) {
+            // For interpreted langs: wrap in bash with ulimits
             case "python":
-              cmd = "python3"; args = ["-u", entryAbs]; break;
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; exec python3 -u ${JSON.stringify(entryAbs)}`]; break;
             case "javascript":
-              cmd = "node"; args = [entryAbs]; break;
+            case "typescript":
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; exec node ${JSON.stringify(entryAbs)}`]; break;
             case "bash":
-              cmd = "bash"; args = [entryAbs]; break;
-            case "c":
-              cmd = "bash"; args = ["-c", `cd ${safeDir} && gcc *.c -o _prog -lm -std=c11 2>&1 && ./_prog`]; break;
-            case "cpp":
-              cmd = "bash"; args = ["-c", `cd ${safeDir} && g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -lm -std=c++17 2>&1 && ./_prog`]; break;
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; exec bash ${JSON.stringify(entryAbs)}`]; break;
+            case "c": {
+              const extraStr = extraCFlags ? ` ${extraCFlags}` : "";
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; cd ${safeDir} && gcc *.c -o _prog -std=gnu11 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
+              break;
+            }
+            case "cpp": {
+              const extraStr = extraCFlags ? ` ${extraCFlags}` : "";
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; cd ${safeDir} && g++ $(ls *.cpp *.cc *.cxx 2>/dev/null | tr '\\n' ' ') -o _prog -std=gnu++17 -D_DEFAULT_SOURCE -lm -pthread${extraStr} 2>&1 && ./_prog`];
+              break;
+            }
+            case "java": {
+              const classMatch = entryContent.match(/public\s+class\s+(\w+)/);
+              const mainClass = classMatch?.[1] ?? path.basename(entryFile, ".java");
+              cmd = "bash"; args = ["-c",
+                `${ULIMIT_PREFIX}; cd ${safeDir} && javac -cp ${safeCP} *.java 2>&1 && java -cp ${safeCP} ${mainClass}`];
+              break;
+            }
             default:
+              activeWsExecutions--;
               try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
               return;
           }
 
-          const spawnEnv: NodeJS.ProcessEnv = language === "javascript"
-            ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
-            : process.env;
+          // Language-specific env vars so installed packages are visible
+          const spawnEnv: NodeJS.ProcessEnv =
+            language === "javascript" || language === "typescript"
+              ? { ...process.env, NODE_PATH: SHARED_JS_MODULES }
+              : language === "python"
+                ? { ...process.env, PYTHONPATH: SHARED_PYLIB_DIR }
+                : process.env;
           const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
           activeProcesses.set(processKey, { proc, tmpDir });
+
+          // ── Wall-clock timeout ───────────────────────────────────────────
+          const execTimer = setTimeout(() => {
+            if (activeProcesses.get(processKey)?.proc === proc) {
+              killProcess(processKey);
+              send({ type: "output", data: `\n⏱ انتهت مدة التنفيذ (${WS_EXEC_TIMEOUT_MS / 1000} ثانية)\n` });
+              send({ type: "exit", exitCode: 124 });
+            }
+          }, WS_EXEC_TIMEOUT_MS);
 
           proc.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
           proc.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
 
           proc.on("close", (code, signal) => {
+            clearTimeout(execTimer);
+            activeWsExecutions = Math.max(0, activeWsExecutions - 1);
             if (activeProcesses.get(processKey)?.proc !== proc) return;
             activeProcesses.delete(processKey);
             setImmediate(() => {
@@ -173,6 +310,8 @@ export function initSoloRunWss(server: Server) {
           });
 
           proc.on("error", (err) => {
+            clearTimeout(execTimer);
+            activeWsExecutions = Math.max(0, activeWsExecutions - 1);
             send({ type: "output", data: `\n❌ فشل التشغيل: ${err.message}\n` });
             killProcess(processKey);
             send({ type: "exit", exitCode: 1 });
@@ -281,6 +420,96 @@ export function initSoloRunWss(server: Server) {
               send({ type: "output", data: `❌ خطأ في تنزيل الحزمة: ${err.message}\n` });
               send({ type: "install_done", success: false });
             });
+            return;
+          }
+
+          // TypeScript → npm (same packages as JavaScript)
+          if (installLang === "typescript") {
+            for (const p of pkgList) {
+              if (!VALID_NPM_PKG_NAME.test(p) || p.length > 100) {
+                send({ type: "output", data: `❌ اسم الحزمة غير صحيح: ${p}\n` });
+                send({ type: "install_done", success: false });
+                return;
+              }
+            }
+            try { fs.mkdirSync(SHARED_JS_PREFIX, { recursive: true }); } catch {}
+            send({ type: "output", data: `📦 جاري تنزيل: ${pkgList.join(", ")} (npm)...\n` });
+            const npm = spawn("npm", [
+              "install", ...pkgList,
+              "--prefix", SHARED_JS_PREFIX,
+              "--no-save", "--no-audit", "--no-fund", "--prefer-offline",
+            ], { stdio: ["ignore", "pipe", "pipe"] });
+            npm.stdout.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+            npm.stderr.on("data", (chunk: Buffer) => send({ type: "output", data: chunk.toString() }));
+            npm.on("close", (code) => {
+              if (code === 0) {
+                send({ type: "output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
+                send({ type: "install_done", success: true, packages: pkgList });
+              } else {
+                send({ type: "output", data: `❌ فشل التنزيل (كود: ${code})\n` });
+                send({ type: "install_done", success: false });
+              }
+            });
+            npm.on("error", (err) => {
+              send({ type: "output", data: `❌ خطأ: ${err.message}\n` });
+              send({ type: "install_done", success: false });
+            });
+            return;
+          }
+
+          // Java → download JARs from Maven Central via `group:artifact:version` format
+          if (installLang === "java") {
+            try { fs.mkdirSync(SHARED_JAVA_DIR, { recursive: true }); } catch {}
+            for (const coord of pkgList) {
+              const parts = coord.split(":");
+              if (parts.length < 3) {
+                send({ type: "output", data: `❌ الصيغة غير صحيحة "${coord}". استخدم: group:artifact:version\n   مثال: com.google.code.gson:gson:2.10.1\n` });
+                send({ type: "install_done", success: false });
+                return;
+              }
+              const [group, artifact, version] = parts;
+              const jarName = `${artifact}-${version}.jar`;
+              const jarPath = path.join(SHARED_JAVA_DIR, jarName);
+              if (fs.existsSync(jarPath)) {
+                send({ type: "output", data: `ℹ️ ${jarName} موجود بالفعل في المخزن المؤقت\n` });
+                continue;
+              }
+              const groupPath = group.replace(/\./g, "/");
+              const url = `https://repo1.maven.org/maven2/${groupPath}/${artifact}/${version}/${jarName}`;
+              send({ type: "output", data: `📦 جاري تنزيل ${jarName} من Maven Central...\n` });
+              try {
+                const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) } as any);
+                if (!resp.ok) {
+                  send({ type: "output", data: `❌ لم يُعثر على ${coord} في Maven Central (${resp.status})\n` });
+                  send({ type: "install_done", success: false });
+                  return;
+                }
+                const buf = Buffer.from(await resp.arrayBuffer());
+                fs.writeFileSync(jarPath, buf);
+                send({ type: "output", data: `✅ تم تنزيل ${jarName}\n` });
+              } catch (e: any) {
+                send({ type: "output", data: `❌ خطأ في تنزيل ${coord}: ${e.message}\n` });
+                send({ type: "install_done", success: false });
+                return;
+              }
+            }
+            send({ type: "install_done", success: true, packages: pkgList });
+            return;
+          }
+
+          // C / C++ → list available system libraries (no download needed)
+          if (installLang === "c" || installLang === "cpp") {
+            send({ type: "output", data: [
+              "📚 مكتبات C/C++ المتاحة مباشرةً (لا تحتاج تنزيل):\n",
+              "  • zlib    → #include <zlib.h>        // ضغط البيانات\n",
+              "  • libpng  → #include <png.h>          // صور PNG\n",
+              "  • libbz2  → #include <bzlib.h>        // ضغط Bzip2\n",
+              "  • libgmp  → #include <gmp.h>          // أعداد دقيقة كبيرة\n",
+              "  • libgmp++→ #include <gmpxx.h>        // نفس gmp لكن C++\n",
+              "ℹ️  فقط أضف #include المناسب وسيُرتبط تلقائياً عند التشغيل.\n",
+              "⚠️  مكتبات مثل libcurl وopenssl وsqlite3 غير متوفرة في هذه البيئة.\n",
+            ].join("") });
+            send({ type: "install_done", success: true, packages: [] });
             return;
           }
 

@@ -1150,6 +1150,62 @@ function EditorStatusBar({
   );
 }
 
+// ── Inline "شرح الخطأ" component ─────────────────────────────────────────────
+function ExplainErrorButton({ code, language, error }: { code: string; language: string; error: string }) {
+  const [loading, setLoading] = useState(false);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const handleClick = async () => {
+    if (open && explanation) { setOpen(false); return; }
+    setOpen(true);
+    if (explanation) return; // already fetched
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai/explain-error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code: code.slice(0, 3000), language, error: error.slice(0, 1500) }),
+      });
+      const data = await res.json();
+      setExplanation(data.explanation ?? data.error ?? "تعذّر الحصول على شرح.");
+    } catch {
+      setExplanation("تعذّر الاتصال بالذكاء الاصطناعي.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="contents">
+      <button
+        onClick={handleClick}
+        disabled={loading}
+        className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-all shrink-0 ${open ? "bg-[#F59E0B]/20 text-[#F59E0B] ring-1 ring-[#F59E0B]/30" : "bg-[#F59E0B]/10 text-[#F59E0B] hover:bg-[#F59E0B]/20"}`}
+        title="اسأل الذكاء الاصطناعي عن هذا الخطأ"
+      >
+        {loading
+          ? <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          : <Sparkles className="w-3 h-3" />}
+        <span className="hidden sm:inline">{loading ? "جاري…" : "شرح الخطأ"}</span>
+      </button>
+      {open && explanation && (
+        <div className="absolute left-2 right-2 top-full mt-1 z-50 bg-[#0d1117] border border-[#F59E0B]/30 rounded-lg p-3 shadow-2xl text-[11px] text-white/85 leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto"
+          dir="rtl">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[#F59E0B] font-bold text-[10px] flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> شرح الخطأ
+            </span>
+            <button onClick={() => setOpen(false)} className="text-[#6e6a86] hover:text-white"><X className="w-3 h-3" /></button>
+          </div>
+          {explanation}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher }: Props) {
   const isMobile = useIsMobile();
   const starter = extractStarterCode(sectionContent);
@@ -1753,7 +1809,12 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/solo-run`);
       soloWsRef.current = ws;
 
+      // Track whether the WS upgrade succeeded. If onerror fires before onopen,
+      // the connection was rejected (e.g. 401 session expired) — fall back to HTTP.
+      let wsOpened = false;
+
       ws.onopen = () => {
+        wsOpened = true;
         const allFiles = files.map(f => ({ path: f.name, content: f.content }));
         ws.send(JSON.stringify({
           type: "run",
@@ -1789,8 +1850,46 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
         }
       };
 
-      ws.onerror = () => {
+      ws.onerror = async () => {
         setProcessRunning(false);
+        ws.close();
+
+        if (!wsOpened) {
+          // WebSocket was rejected before connecting (e.g. session expired).
+          // Fall back to HTTP batch execution so code still runs.
+          setInteractiveMode(false);
+          liveOutputRef.current = "";
+          setLiveOutput("");
+          try {
+            const siblings = (files as typeof files)
+              .filter(f => f.id !== file.id && !f.name.endsWith("/.gitkeep") && (f.language === file.language || DATA_LANGS.has(f.language)))
+              .map(f => ({ file: f.name, code: f.content }));
+            const res = await fetch("/api/ai/run-code", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                code: file.content,
+                language: file.language,
+                ...(stdin.trim() ? { stdin } : {}),
+                ...(siblings.length > 0 ? { codes: siblings } : {}),
+              }),
+            });
+            const data = await res.json();
+            const hasError = data.exitCode !== 0 || (!data.output && data.error);
+            setOutputType(hasError ? "error" : "success");
+            const combined = (data.output || "") + (data.error ? `\n${data.error}` : "");
+            setOutput(data.output ? combined : (data.error || "لا يوجد إخراج"));
+          } catch {
+            setOutputType("error");
+            setOutput("تعذّر الاتصال بالخادم — تأكد من تسجيل الدخول وحاول مجدداً");
+          } finally {
+            setRunning(false);
+          }
+          return;
+        }
+
+        // Connection dropped mid-execution — show error in terminal
         setRunning(false);
         const next = liveOutputRef.current + "\n❌ انقطع الاتصال بالخادم";
         liveOutputRef.current = next;
@@ -3121,17 +3220,31 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                     <span className="hidden sm:inline">{outputType === "success" ? "exit 0" : "exit 1"}</span>
                   </div>
                 )}
+                {output !== null && outputType === "error" && (
+                  <ExplainErrorButton
+                    code={activeFile?.content ?? ""}
+                    language={activeFile?.language ?? ""}
+                    error={output}
+                  />
+                )}
                 {output !== null && (
                   <span className="text-[10px] text-[#6e6a86] font-mono shrink-0">
                     {output.split("\n").length} سطر
                   </span>
                 )}
                 <div className="flex-1" />
-                {(activeFile?.language === "python" || activeFile?.language === "javascript") && (
+                {(["python","javascript","typescript","java","c","cpp"].includes(activeFile?.language ?? "")) && (
                   <button
                     onClick={() => setShowInstallInput(v => !v)}
                     className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-md transition-all shrink-0 ${showInstallInput ? "bg-[#10B981]/20 text-[#10B981] ring-1 ring-[#10B981]/40" : "bg-[#10B981]/10 text-[#10B981] hover:bg-[#10B981]/20"}`}
-                    title={activeFile?.language === "javascript" ? "تنزيل حزمة npm" : "تنزيل مكتبة Python"}
+                    title={{
+                      javascript: "تنزيل حزمة npm",
+                      typescript: "تنزيل حزمة npm",
+                      python: "تنزيل مكتبة Python",
+                      java: "تنزيل JAR من Maven Central",
+                      c: "مكتبات C المتاحة",
+                      cpp: "مكتبات C++ المتاحة",
+                    }[activeFile?.language ?? "python"] ?? "مكتبات"}
                     disabled={installing}
                   >
                     {installing ? (
@@ -3139,7 +3252,7 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                     ) : (
                       <Package className="w-3.5 h-3.5" />
                     )}
-                    <span>{installing ? "جاري التنزيل..." : "تنزيل مكتبة"}</span>
+                    <span>{installing ? "جاري التنزيل..." : (["c","cpp"].includes(activeFile?.language ?? "") ? "مكتبات النظام" : "تنزيل مكتبة")}</span>
                   </button>
                 )}
                 <button
@@ -3159,31 +3272,46 @@ export function CodeEditorPanel({ sectionContent, subjectId, onShareWithTeacher 
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {showInstallInput && (activeFile?.language === "python" || activeFile?.language === "javascript") && (
+              {showInstallInput && (["python","javascript","typescript","java","c","cpp"].includes(activeFile?.language ?? "")) && (
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-[#060910]">
                   <Package className="w-3.5 h-3.5 text-[#10B981] shrink-0" />
-                  <input
-                    autoFocus
-                    dir="ltr"
-                    value={installInput}
-                    onChange={e => setInstallInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") handleInstall(); if (e.key === "Escape") setShowInstallInput(false); }}
-                    placeholder={activeFile?.language === "javascript" ? "lodash axios moment..." : "pandas numpy matplotlib..."}
-                    disabled={installing}
-                    className="flex-1 bg-transparent text-white/80 text-xs font-mono outline-none placeholder-white/20 min-w-0"
-                  />
-                  {installedPkgs.length > 0 && (
-                    <span className="text-[10px] text-[#10B981]/60 font-mono shrink-0 hidden sm:block">
-                      {installedPkgs.slice(-3).join(", ")}
+                  {["c","cpp"].includes(activeFile?.language ?? "") ? (
+                    /* C/C++: no install needed — show info instead */
+                    <span className="flex-1 text-[10px] text-[#10B981]/80 font-mono leading-relaxed">
+                      أضف <code className="text-white/70">#include &lt;zlib.h&gt;</code> أو <code className="text-white/70">#include &lt;png.h&gt;</code> أو <code className="text-white/70">#include &lt;gmp.h&gt;</code> مباشرةً — تُرتبط تلقائياً.&nbsp;
+                      <button onClick={handleInstall} className="text-[#10B981] underline underline-offset-2">عرض الكامل</button>
                     </span>
+                  ) : (
+                    <>
+                      <input
+                        autoFocus
+                        dir="ltr"
+                        value={installInput}
+                        onChange={e => setInstallInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleInstall(); if (e.key === "Escape") setShowInstallInput(false); }}
+                        placeholder={{
+                          javascript: "lodash axios moment...",
+                          typescript: "lodash@types/lodash zod...",
+                          python: "pandas numpy matplotlib...",
+                          java: "com.google.code.gson:gson:2.10.1",
+                        }[activeFile?.language ?? "python"] ?? "اسم المكتبة..."}
+                        disabled={installing}
+                        className="flex-1 bg-transparent text-white/80 text-xs font-mono outline-none placeholder-white/20 min-w-0"
+                      />
+                      {installedPkgs.length > 0 && (
+                        <span className="text-[10px] text-[#10B981]/60 font-mono shrink-0 hidden sm:block">
+                          {installedPkgs.slice(-3).join(", ")}
+                        </span>
+                      )}
+                      <button
+                        onClick={handleInstall}
+                        disabled={installing || !installInput.trim()}
+                        className="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded bg-[#10B981]/20 text-[#10B981] hover:bg-[#10B981]/30 disabled:opacity-40 transition-colors"
+                      >
+                        {installing ? "جاري…" : "تثبيت"}
+                      </button>
+                    </>
                   )}
-                  <button
-                    onClick={handleInstall}
-                    disabled={installing || !installInput.trim()}
-                    className="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded bg-[#10B981]/20 text-[#10B981] hover:bg-[#10B981]/30 disabled:opacity-40 transition-colors"
-                  >
-                    {installing ? "جاري…" : "تثبيت"}
-                  </button>
                 </div>
               )}
               <div

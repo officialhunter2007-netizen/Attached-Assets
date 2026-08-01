@@ -33,7 +33,9 @@ type SubmitState =
   | { status: "idle" }
   | { status: "submitting" }
   | { status: "done"; score: number; bestScore: number }
-  | { status: "error"; message: string };
+  // Keep the score so "أعد المحاولة" can actually re-POST it — the iframe
+  // only emits submitScore once, so losing it would lose the attempt.
+  | { status: "error"; message: string; score: number };
 
 const TYPE_LABEL: Record<QuizType, string> = {
   unit:  "اختبار الوحدة",
@@ -96,13 +98,43 @@ export default function QuizViewer({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle" });
+  // Ref-based gate: state setters alone can't stop two async handlers racing.
+  const submitLockRef = useRef(false);
   const color = TYPE_COLOR[quizType];
 
   const quizUrl = `/api/v4/${quizType}-quizzes/${quizId}/view`;
 
+  // ── score POST (used by both the message handler and the retry button) ────
+  async function postScore(score: number) {
+    setSubmitState({ status: "submitting" });
+    try {
+      const res = await fetch("/api/v4/quiz-scores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ quiz_type: quizType, quiz_id: quizId, score }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const rec = data.scoreRecord ?? {};
+      const best = Number(rec.best_score ?? score);
+      setSubmitState({ status: "done", score, bestScore: best });
+      onScoreSubmitted?.(score, best);
+    } catch (err: any) {
+      setSubmitState({ status: "error", message: err?.message ?? "حدث خطأ في حفظ الدرجة", score });
+    }
+  }
+  const postScoreRef = useRef(postScore);
+  postScoreRef.current = postScore;
+
   // ── postMessage listener ──────────────────────────────────────────────────
   useEffect(() => {
-    async function handleMessage(e: MessageEvent) {
+    function handleMessage(e: MessageEvent) {
+      // Only trust messages coming from OUR quiz iframe.
+      if (e.source !== iframeRef.current?.contentWindow) return;
       const d = e.data;
       if (
         !d ||
@@ -114,36 +146,16 @@ export default function QuizViewer({
       const score = Number(d.score);
       if (!Number.isFinite(score) || score < 0 || score > 100) return;
 
-      // Prevent double-submit while already submitting / already done
-      setSubmitState((prev) => {
-        if (prev.status === "submitting" || prev.status === "done") return prev;
-        return { status: "submitting" };
-      });
+      // One submission per quiz attempt (retry goes through postScore directly)
+      if (submitLockRef.current) return;
+      submitLockRef.current = true;
 
-      try {
-        const res = await fetch("/api/v4/quiz-scores", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ quiz_type: quizType, quiz_id: quizId, score }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body?.error ?? `HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        const rec = data.scoreRecord ?? {};
-        const best = Number(rec.best_score ?? score);
-        setSubmitState({ status: "done", score, bestScore: best });
-        onScoreSubmitted?.(score, best);
-      } catch (err: any) {
-        setSubmitState({ status: "error", message: err?.message ?? "حدث خطأ في حفظ الدرجة" });
-      }
+      void postScoreRef.current(score);
     }
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [quizId, quizType, onScoreSubmitted]);
+  }, [quizId, quizType]);
 
   // ── Close on Escape ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -163,7 +175,8 @@ export default function QuizViewer({
         exit={{ opacity: 0 }}
         className="absolute inset-0"
         style={{ background: "rgba(0,0,0,0.9)", backdropFilter: "blur(8px)" }}
-        onClick={onClose}
+        // Intentionally NOT clickable — an accidental backdrop tap mid-quiz
+        // would throw away the student's answers. Close via X / إغلاق / Esc.
       />
 
       {/* Panel */}
@@ -290,7 +303,9 @@ export default function QuizViewer({
                     <span className="text-sm text-red-400">{submitState.message}</span>
                   </div>
                   <button
-                    onClick={() => setSubmitState({ status: "idle" })}
+                    onClick={() => {
+                      if (submitState.status === "error") void postScore(submitState.score);
+                    }}
                     className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/70 transition-colors"
                   >
                     <RotateCcw className="w-3 h-3" />

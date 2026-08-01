@@ -103,7 +103,7 @@ router.post("/lab/bank/login", async (req, res) => {
 });
 
 // GET /api/lab/bank/me — معلومات الحساب
-router.get("/lab/bank/me", async (req, res) => {
+router.get("/lab/bank/me", async (req: any, res: any) => {
   const sessionId = req.cookies?.lab_session;
   if (!sessionId) {
     return res.status(401).json({ error: "UNAUTHORIZED", message: "لم تسجل الدخول بعد" });
@@ -127,7 +127,7 @@ router.get("/lab/bank/me", async (req, res) => {
 });
 
 // POST /api/lab/bank/transfer — تحويل أموال (الهدف من CSRF)
-router.post("/lab/bank/transfer", async (req, res) => {
+router.post("/lab/bank/transfer", async (req: any, res: any) => {
   const userId = getStudentUserId(req);
   const config = await getLabConfig(userId);
   const sessionId = req.cookies?.lab_session;

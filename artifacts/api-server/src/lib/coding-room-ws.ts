@@ -32,11 +32,29 @@ const CURSOR_COLORS = [
   "#14B8A6", "#F43F5E", "#A855F7", "#0EA5E9", "#22C55E",
 ];
 
+// ── Safety limits ────────────────────────────────────────────────────────────
+const EXEC_TIMEOUT_MS       = 30_000;         // 30s max per code run
+const MAX_OUTPUT_BYTES      = 512 * 1024;     // 512 KB total process output
+const MAX_FILE_BYTES        = 100 * 1024;     // 100 KB per file
+const MAX_PROJECT_BYTES     = 256 * 1024;     // 256 KB total project size
+const MAX_FILES_PER_ROOM    = 20;             // max files in one room
+const MAX_WS_FRAME_BYTES    = 256 * 1024;     // 256 KB max incoming WS frame
+const RUN_COOLDOWN_MS       = 3_000;          // 3s between consecutive runs per user
+const CHAT_MAX_PER_WINDOW   = 10;             // max chat messages per window
+const CHAT_WINDOW_MS        = 10_000;         // chat rate-limit window
+// ─────────────────────────────────────────────────────────────────────────────
+
 const rooms = new Map<number, Set<WsClient>>();
 const userColorMap = new Map<string, string>();
 const roomClosingTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const pendingHostMigrations = new Map<number, { timer: ReturnType<typeof setTimeout>; oldHostId: number }>();
 const roomFileSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Per-client rate-limit state (keyed by WsClient reference, cleared on disconnect)
+const clientLastRun = new Map<WsClient, number>();
+const clientChatState = new Map<WsClient, { count: number; resetAt: number }>();
+// Per-room install lock: only one package install at a time per room
+const activeInstalls = new Set<number>();
 
 function scheduleFileSave(roomId: number, filePath: string, content: string) {
   const key = `${roomId}:${filePath}`;
@@ -274,16 +292,22 @@ async function handleMessage(client: WsClient, raw: string) {
         sendTo(client, { type: "error", message: "ليس لديك إذن الكتابة" });
         return;
       }
-      const ops = msg.ops ?? [];
+      const ccFile = (msg.file ?? "").trim();
+      if (!ccFile || !isValidFilePath(ccFile)) return;
       const fullContent: string = msg.fullContent ?? "";
+      if (fullContent.length > MAX_FILE_BYTES) {
+        sendTo(client, { type: "error", message: `حجم الملف تجاوز الحد المسموح به (${MAX_FILE_BYTES / 1024} KB)` });
+        return;
+      }
+      const ops = msg.ops ?? [];
       broadcast(client.roomId, {
         type: "code_change",
         userId: client.userId,
-        file: msg.file,
+        file: ccFile,
         ops,
       }, client.userId);
-      if (msg.file && fullContent !== "") {
-        scheduleFileSave(client.roomId, msg.file, fullContent);
+      if (fullContent !== "") {
+        scheduleFileSave(client.roomId, ccFile, fullContent);
       }
       break;
     }
@@ -312,9 +336,27 @@ async function handleMessage(client: WsClient, raw: string) {
         sendTo(client, { type: "error", message: "مسار ملف غير صالح" });
         return;
       }
+      const newContent = msg.content ?? "";
+      if (newContent.length > MAX_FILE_BYTES) {
+        sendTo(client, { type: "error", message: `حجم الملف تجاوز الحد المسموح به (${MAX_FILE_BYTES / 1024} KB)` });
+        return;
+      }
+      // Enforce project-wide file count and total size limits
+      const [fcCount, fcSize] = await Promise.all([
+        db.execute(sql`SELECT COUNT(*) AS cnt FROM coding_room_files WHERE room_id = ${client.roomId}`),
+        db.execute(sql`SELECT COALESCE(SUM(LENGTH(content)),0) AS total FROM coding_room_files WHERE room_id = ${client.roomId}`),
+      ]);
+      if (Number((fcCount.rows[0] as any).cnt) >= MAX_FILES_PER_ROOM) {
+        sendTo(client, { type: "error", message: `تجاوزت الحد الأقصى لعدد الملفات (${MAX_FILES_PER_ROOM})` });
+        return;
+      }
+      if (Number((fcSize.rows[0] as any).total) + newContent.length > MAX_PROJECT_BYTES) {
+        sendTo(client, { type: "error", message: `مساحة المشروع تجاوزت الحد المسموح به (${MAX_PROJECT_BYTES / 1024} KB)` });
+        return;
+      }
       await db.execute(
         sql`INSERT INTO coding_room_files (room_id, file_path, content, created_by_user_id)
-            VALUES (${client.roomId}, ${filePath}, ${msg.content ?? ""}, ${client.userId})
+            VALUES (${client.roomId}, ${filePath}, ${newContent}, ${client.userId})
             ON CONFLICT (room_id, file_path) DO NOTHING`
       );
       broadcastJoined(client.roomId, {
@@ -547,6 +589,13 @@ async function handleMessage(client: WsClient, raw: string) {
     case "chat_message": {
       const text = (msg.text ?? "").slice(0, 500).trim();
       if (!text) return;
+      // Rate limit: max 10 messages per 10 seconds per client
+      const nowChat = Date.now();
+      const chatState = clientChatState.get(client) ?? { count: 0, resetAt: nowChat + CHAT_WINDOW_MS };
+      if (nowChat > chatState.resetAt) { chatState.count = 0; chatState.resetAt = nowChat + CHAT_WINDOW_MS; }
+      if (chatState.count >= CHAT_MAX_PER_WINDOW) return;
+      chatState.count++;
+      clientChatState.set(client, chatState);
       broadcastJoined(client.roomId, {
         type: "chat_message",
         userId: client.userId,
@@ -606,7 +655,16 @@ async function handleMessage(client: WsClient, raw: string) {
     case "transfer_host": {
       if (client.role !== "host") return;
       const newHostId = msg.targetUserId;
-      if (!newHostId) return;
+      if (!newHostId || newHostId === client.userId) return;
+      // Verify target is a currently-joined member (not kicked/waiting/left)
+      const transferTarget = await db.execute(
+        sql`SELECT status FROM coding_room_members
+            WHERE room_id = ${client.roomId} AND user_id = ${newHostId} AND status = 'joined' LIMIT 1`
+      );
+      if (!transferTarget.rows.length) {
+        sendTo(client, { type: "error", message: "المستخدم المحدد ليس عضواً نشطاً في الغرفة" });
+        return;
+      }
       await db.execute(
         sql`UPDATE coding_rooms SET host_user_id = ${newHostId}, updated_at = NOW()
             WHERE id = ${client.roomId}`
@@ -643,6 +701,15 @@ async function handleMessage(client: WsClient, raw: string) {
       const language = (msg.language ?? "").trim();
       if (!entryFile || !isValidFilePath(entryFile)) return;
       if (!INTERACTIVE_LANGS.has(language)) return;
+
+      // Rate limit: 3-second cooldown between consecutive runs per user
+      const nowRun = Date.now();
+      const lastRun = clientLastRun.get(client) ?? 0;
+      if (nowRun - lastRun < RUN_COOLDOWN_MS) {
+        sendTo(client, { type: "error", message: "الرجاء الانتظار قبل تشغيل الكود مجدداً" });
+        return;
+      }
+      clientLastRun.set(client, nowRun);
 
       killRoomProcess(client.roomId);
 
@@ -697,12 +764,25 @@ async function handleMessage(client: WsClient, raw: string) {
         : process.env;
       const proc = spawn(cmd, args, { cwd: tmpDir, stdio: ["pipe", "pipe", "pipe"], env: spawnEnv });
 
-      const timer = setTimeout(() => {}, 2_147_483_647);
+      // Real 30-second execution timeout
+      let outputBytes = 0;
+      const timer = setTimeout(() => {
+        broadcastJoined(client.roomId, { type: "process_output", data: `\n⏰ انتهت مهلة التشغيل (${EXEC_TIMEOUT_MS / 1000} ثانية)\n` });
+        killRoomProcess(client.roomId);
+        broadcastJoined(client.roomId, { type: "process_exit", exitCode: null, signal: "SIGKILL" });
+      }, EXEC_TIMEOUT_MS);
 
       const entry: ProcessEntry = { proc, timer, tmpDir };
       activeProcesses.set(client.roomId, entry);
 
       const onData = (chunk: Buffer) => {
+        outputBytes += chunk.length;
+        if (outputBytes > MAX_OUTPUT_BYTES) {
+          broadcastJoined(client.roomId, { type: "process_output", data: `\n⚠️ تم إيقاف التشغيل: تجاوز حجم المخرجات الحد المسموح به (${MAX_OUTPUT_BYTES / 1024} KB)\n` });
+          killRoomProcess(client.roomId);
+          broadcastJoined(client.roomId, { type: "process_exit", exitCode: null, signal: "SIGKILL" });
+          return;
+        }
         broadcastJoined(client.roomId, { type: "process_output", data: chunk.toString() });
       };
       proc.stdout.on("data", onData);
@@ -745,6 +825,12 @@ async function handleMessage(client: WsClient, raw: string) {
 
     case "install_packages": {
       if (!client.canRun && client.role !== "host") return;
+      // Only one install at a time per room to prevent shared-dir conflicts
+      if (activeInstalls.has(client.roomId)) {
+        sendTo(client, { type: "process_output", data: "⏳ تثبيت آخر جارٍ بالفعل، الرجاء الانتظار...\n" });
+        broadcastJoined(client.roomId, { type: "install_done", success: false });
+        return;
+      }
       const installLang = String(msg.language ?? "python");
       const rawPkgs = String(msg.packages ?? "").trim();
       const pkgList = rawPkgs.split(/[\s,]+/).filter(Boolean).slice(0, 8);
@@ -753,6 +839,7 @@ async function handleMessage(client: WsClient, raw: string) {
         broadcastJoined(client.roomId, { type: "install_done", success: false });
         return;
       }
+      activeInstalls.add(client.roomId);
 
       if (installLang === "python") {
         for (const p of pkgList) {
@@ -780,6 +867,7 @@ async function handleMessage(client: WsClient, raw: string) {
         pip.stdout.on("data", onPipData);
         pip.stderr.on("data", onPipData);
         pip.on("close", (code) => {
+          activeInstalls.delete(client.roomId);
           if (code === 0) {
             broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
             broadcastJoined(client.roomId, { type: "install_done", success: true, packages: pkgList });
@@ -789,6 +877,7 @@ async function handleMessage(client: WsClient, raw: string) {
           }
         });
         pip.on("error", (err) => {
+          activeInstalls.delete(client.roomId);
           broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ في تنزيل المكتبة: ${err.message}\n` });
           broadcastJoined(client.roomId, { type: "install_done", success: false });
         });
@@ -820,6 +909,7 @@ async function handleMessage(client: WsClient, raw: string) {
         npm.stdout.on("data", onNpmData);
         npm.stderr.on("data", onNpmData);
         npm.on("close", (code) => {
+          activeInstalls.delete(client.roomId);
           if (code === 0) {
             broadcastJoined(client.roomId, { type: "process_output", data: `✅ تم التنزيل: ${pkgList.join(", ")} بنجاح!\n` });
             broadcastJoined(client.roomId, { type: "install_done", success: true, packages: pkgList });
@@ -829,6 +919,7 @@ async function handleMessage(client: WsClient, raw: string) {
           }
         });
         npm.on("error", (err) => {
+          activeInstalls.delete(client.roomId);
           broadcastJoined(client.roomId, { type: "process_output", data: `❌ خطأ في تنزيل الحزمة: ${err.message}\n` });
           broadcastJoined(client.roomId, { type: "install_done", success: false });
         });
@@ -956,6 +1047,8 @@ async function handleDisconnect(client: WsClient) {
 
 function wireClientSocket(client: WsClient) {
   client.ws.on("message", (data: Buffer) => {
+    // Reject oversized frames before parsing — prevents memory exhaustion
+    if (data.length > MAX_WS_FRAME_BYTES) return;
     if (client.status !== "joined") return;
     handleMessage(client, data.toString()).catch((err) => {
       logger.error({ err: err?.message }, "ws:room: message handler error");
@@ -964,6 +1057,9 @@ function wireClientSocket(client: WsClient) {
 
   client.ws.on("close", () => {
     client.isOnline = false;
+    // Clean up per-client rate-limit state
+    clientLastRun.delete(client);
+    clientChatState.delete(client);
     handleDisconnect(client).catch((err) => {
       logger.error({ err: err?.message }, "ws:room: disconnect handler error");
     });
@@ -1086,6 +1182,11 @@ export function initCodingRoomWss(server: Server) {
           broadcastJoined(roomId, { type: "host_reconnected", hostId: userId });
         }
 
+        if (!member) {
+          ws.close(1011, "خطأ في الخادم");
+          return;
+        }
+
         if (member.status === "kicked") {
           ws.send(JSON.stringify({ type: "rejected", message: "تم طردك من هذه الغرفة" }));
           ws.close(1008, "مطرود");
@@ -1133,9 +1234,17 @@ export function initCodingRoomWss(server: Server) {
         };
 
         const roomSet = getRoomClients(roomId);
-        for (const stale of roomSet) {
-          if (stale.userId === userId && !stale.isOnline) {
-            roomSet.delete(stale);
+        // Close ALL existing sockets for this user (online or stale) to enforce
+        // one connection per user-room — prevents duplicate presence/billing.
+        for (const existing of roomSet) {
+          if (existing.userId === userId) {
+            existing.isOnline = false;
+            clientLastRun.delete(existing);
+            clientChatState.delete(existing);
+            if (existing.ws.readyState === WebSocket.OPEN) {
+              existing.ws.close(1000, "تم فتح اتصال جديد");
+            }
+            roomSet.delete(existing);
           }
         }
         roomSet.add(client);
@@ -1185,4 +1294,11 @@ export function initCodingRoomWss(server: Server) {
 
 export function getRoomOnlineCount(roomId: number): number {
   return [...getRoomClients(roomId)].filter((c) => c.isOnline && c.status === "joined").length;
+}
+
+/** Live WS presence check: is this user currently connected AND joined in the room? */
+export function isUserOnlineInRoom(roomId: number, userId: number): boolean {
+  return [...getRoomClients(roomId)].some(
+    (c) => c.userId === userId && c.isOnline && c.status === "joined",
+  );
 }

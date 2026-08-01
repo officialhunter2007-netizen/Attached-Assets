@@ -355,12 +355,13 @@ function Station2_Conversions({ envLevel, onSubmit }: { envLevel: EnvLevel; onSu
   const [results, setResults] = useState<string[]>([]);
 
   const check = () => {
+    const cur = current as any;
     if (ex === 0) {
-      setResults(answers.map((a, i) => a.trim() === current.correctAnswers[i] ? "✅" : "❌"));
+      setResults(answers.map((a, i) => a.trim() === cur.correctAnswers[i] ? "✅" : "❌"));
     } else if (ex === 1) {
-      setResults(answers.slice(0, 2).map((a, i) => a.trim().toUpperCase() === current.answers[i].toUpperCase() ? "✅" : "❌"));
+      setResults(answers.slice(0, 2).map((a, i) => a.trim().toUpperCase() === cur.answers[i].toUpperCase() ? "✅" : "❌"));
     } else {
-      setResults([answers[0].trim() === current.answer ? "✅" : "❌"]);
+      setResults([answers[0].trim() === cur.answer ? "✅" : "❌"]);
     }
   };
 
@@ -378,7 +379,7 @@ function Station2_Conversions({ envLevel, onSubmit }: { envLevel: EnvLevel; onSu
 
         {ex === 0 && (
           <div className="space-y-2 mb-4">
-            {current.rows.map((row, i) => (
+            {(current as any).rows.map((row: any, i: number) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="text-[10px] text-white/40 w-16">{row.label}:</span>
                 <span className="font-mono text-white text-xs w-20" style={{ direction: "ltr" }}>{row.value}</span>

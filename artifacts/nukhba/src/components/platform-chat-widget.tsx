@@ -1,16 +1,26 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Sparkles, X, Send, Loader2, MessageSquarePlus } from "lucide-react";
+import { BookOpen, X, Send, Loader2, MessageSquarePlus, HeadphonesIcon, ExternalLink } from "lucide-react";
 import { useAuth } from "@/lib/use-auth";
+import { useLocation } from "wouter";
 
-type ChatMsg = { role: "user" | "assistant"; content: string };
+type ChatMsg = { role: "user" | "assistant"; content: string; supportNeeded?: boolean };
 
-const STORAGE_PREFIX = "nukhba_help_chat_v1_";
+const STORAGE_PREFIX = "nukhba_guide_chat_v2_";
 const SUGGESTIONS = [
-  "كيف أبدأ جلسة تعليمية؟",
-  "ما الفرق بين الباقات؟",
-  "ما هو المختبر التفاعلي؟",
-  "كيف أرى تقاريري السابقة؟",
+  "كيف أبدأ جلسة تعليمية جديدة؟",
+  "رسائلي اليومية انتهت، متى تتجدّد؟",
+  "كيف أشترك في مادة؟",
+  "لا تظهر لي شهاداتي في اللوحة",
+  "طلب اشتراكي لم يُفعَّل بعد",
 ];
+
+// Strip [[SUPPORT_NEEDED]] tag and return whether it was present
+function parseSupportTag(text: string): { clean: string; needsSupport: boolean } {
+  const tag = "[[SUPPORT_NEEDED]]";
+  const idx = text.indexOf(tag);
+  if (idx === -1) return { clean: text, needsSupport: false };
+  return { clean: text.replace(/\[\[SUPPORT_NEEDED\]\]/g, "").trimEnd(), needsSupport: true };
+}
 
 function renderMarkdown(text: string): string {
   const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -18,7 +28,13 @@ function renderMarkdown(text: string): string {
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
   html = html.replace(/`([^`]+)`/g, '<code class="bg-white/10 px-1 py-0.5 rounded text-[11px]">$1</code>');
-  html = html.replace(/\[([^\]]+)\]\((\/[^\s)]+)\)/g, '<a href="$2" class="text-gold underline">$1</a>');
+  // Internal links like [/support] or [/learn]
+  html = html.replace(/\[(\/?[a-zA-Z/\u0600-\u06FF][^\]]*)\]\((\/?[^\s)]+)\)/g, '<a href="$2" class="text-amber-400 underline underline-offset-2">$1</a>');
+  html = html.replace(/\[(\/?[a-zA-Z\u0600-\u06FF][^\]]*)\]/g, (_, p) => {
+    // bare [/path] links without ()
+    if (p.startsWith("/")) return `<a href="${p}" class="text-amber-400 underline underline-offset-2">${p}</a>`;
+    return `[${p}]`;
+  });
   const lines = html.split("\n");
   const out: string[] = [];
   let inList = false;
@@ -43,13 +59,16 @@ function renderMarkdown(text: string): string {
 
 export function PlatformChatWidget() {
   const { user } = useAuth();
+  const [location, navigate] = useLocation();
   const storageKey = user ? `${STORAGE_PREFIX}${user.id}` : null;
 
-  const [open, setOpen] = useState(false);
+  const isSupport = location === "/support";
+  const [open, setOpen] = useState(isSupport);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamBuf, setStreamBuf] = useState("");
+  const [streamSupportNeeded, setStreamSupportNeeded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -94,6 +113,7 @@ export function PlatformChatWidget() {
     setInput("");
     setStreaming(true);
     setStreamBuf("");
+    setStreamSupportNeeded(false);
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -103,14 +123,16 @@ export function PlatformChatWidget() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMsgs }),
+        body: JSON.stringify({ messages: newMsgs.map(m => ({ role: m.role, content: m.content })) }),
         signal: ac.signal,
       });
 
       if (!res.ok || !res.body) {
         const errText = res.status === 401
-          ? "يجب تسجيل الدخول لاستخدام المساعد."
-          : "تعذّر الاتصال بالمساعد، حاول لاحقًا.";
+          ? "يجب تسجيل الدخول لاستخدام المرشد."
+          : res.status === 429
+          ? "وصلت الحد اليومي للمرشد. يتجدّد منتصف الليل بتوقيت اليمن."
+          : "تعذّر الاتصال بالمرشد، حاول لاحقًا.";
         setMessages((p) => [...p, { role: "assistant", content: errText }]);
         setStreaming(false);
         return;
@@ -133,15 +155,21 @@ export function PlatformChatWidget() {
             const data = JSON.parse(line.slice(6));
             if (data.error) {
               acc += `\n\n_${data.error}_`;
-              setStreamBuf(acc);
+              const { clean, needsSupport } = parseSupportTag(acc);
+              setStreamBuf(clean);
+              setStreamSupportNeeded(needsSupport);
             } else if (data.content) {
               acc += data.content;
-              setStreamBuf(acc);
+              const { clean, needsSupport } = parseSupportTag(acc);
+              setStreamBuf(clean);
+              setStreamSupportNeeded(needsSupport);
             } else if (data.done) {
               if (acc.trim()) {
-                setMessages((p) => [...p, { role: "assistant", content: acc }]);
+                const { clean, needsSupport } = parseSupportTag(acc);
+                setMessages((p) => [...p, { role: "assistant", content: clean, supportNeeded: needsSupport }]);
               }
               setStreamBuf("");
+              setStreamSupportNeeded(false);
               setStreaming(false);
               abortRef.current = null;
               return;
@@ -149,8 +177,12 @@ export function PlatformChatWidget() {
           } catch {}
         }
       }
-      if (acc.trim()) setMessages((p) => [...p, { role: "assistant", content: acc }]);
+      if (acc.trim()) {
+        const { clean, needsSupport } = parseSupportTag(acc);
+        setMessages((p) => [...p, { role: "assistant", content: clean, supportNeeded: needsSupport }]);
+      }
       setStreamBuf("");
+      setStreamSupportNeeded(false);
     } catch (e: any) {
       if (e?.name !== "AbortError") {
         setMessages((p) => [...p, { role: "assistant", content: "حدث خطأ غير متوقّع. حاول مرّة أخرى." }]);
@@ -177,10 +209,16 @@ export function PlatformChatWidget() {
     abortRef.current?.abort();
     setMessages([]);
     setStreamBuf("");
+    setStreamSupportNeeded(false);
     setStreaming(false);
     if (storageKey) {
       try { localStorage.removeItem(storageKey); } catch {}
     }
+  };
+
+  const goToSupport = () => {
+    setOpen(false);
+    navigate("/support");
   };
 
   if (!user) return null;
@@ -191,15 +229,15 @@ export function PlatformChatWidget() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          aria-label="افتح مساعد نُخبة"
+          aria-label="افتح مرشد الطالب في نُخبة"
           className="fixed bottom-5 left-5 z-[60] group"
         >
-          <span className="absolute inset-0 rounded-full bg-gold/40 blur-xl opacity-60 group-hover:opacity-90 transition-opacity"></span>
+          <span className="absolute inset-0 rounded-full bg-amber-400/30 blur-xl opacity-60 group-hover:opacity-90 transition-opacity" />
           <span className="relative flex items-center gap-2 bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 text-slate-900 font-bold px-4 py-3 rounded-full shadow-2xl shadow-amber-500/30 border border-amber-300/40 hover:scale-105 active:scale-95 transition-transform">
-            <Sparkles className="w-5 h-5" />
-            <span className="hidden sm:inline text-sm">مساعد نُخبة</span>
+            <BookOpen className="w-5 h-5" />
+            <span className="hidden sm:inline text-sm">مرشد الطالب</span>
           </span>
-          <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-slate-950 animate-pulse"></span>
+          <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-slate-950 animate-pulse" />
         </button>
       )}
 
@@ -207,23 +245,23 @@ export function PlatformChatWidget() {
       {open && (
         <div
           dir="rtl"
-          className="fixed z-[60] bottom-3 left-3 right-3 sm:right-auto sm:bottom-5 sm:left-5 sm:w-[400px] h-[min(620px,calc(100dvh-2rem))] flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-black/50 border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 backdrop-blur-xl"
+          className="fixed z-[60] bottom-3 left-3 right-3 sm:right-auto sm:bottom-5 sm:left-5 sm:w-[410px] h-[min(640px,calc(100dvh-2rem))] flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-black/50 border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"
         >
           {/* Header */}
-          <div className="relative px-4 py-3 border-b border-white/10 bg-gradient-to-l from-amber-500/15 via-amber-400/5 to-transparent flex items-center justify-between gap-2">
+          <div className="relative px-4 py-3 border-b border-white/10 bg-gradient-to-l from-amber-500/15 via-amber-400/5 to-transparent flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="relative shrink-0">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
-                  <Sparkles className="w-5 h-5 text-slate-900" />
+                  <BookOpen className="w-5 h-5 text-slate-900" />
                 </div>
-                <span className="absolute -bottom-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-950"></span>
+                <span className="absolute -bottom-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-950" />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-black text-white flex items-center gap-1.5">
-                  مساعد نُخبة
+                <div className="text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
+                  مرشد الطالب في نُخبة
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">AI</span>
                 </div>
-                <div className="text-[10px] text-white/50">يجيبك عن كل شيء في المنصة</div>
+                <div className="text-[10px] text-white/50">يحل أي مشكلة تواجهك في المنصة</div>
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -249,13 +287,13 @@ export function PlatformChatWidget() {
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 scroll-smooth">
             {messages.length === 0 && !streaming && (
-              <div className="text-center py-6">
+              <div className="text-center py-5">
                 <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400/20 to-amber-600/10 border border-amber-400/30 flex items-center justify-center mb-3">
-                  <Sparkles className="w-7 h-7 text-amber-400" />
+                  <BookOpen className="w-7 h-7 text-amber-400" />
                 </div>
-                <h3 className="text-sm font-black text-white mb-1">مرحبًا بك في نُخبة 👋</h3>
+                <h3 className="text-sm font-black text-white mb-1">مرشدك في نُخبة 👋</h3>
                 <p className="text-[11px] text-white/55 mb-4 leading-relaxed px-2">
-                  اسألني عن أي شيء في المنصة — الباقات، المختبرات، الجلسات، أو كيف تبدأ.
+                  اسألني عن أي شيء — مشكلة تقنية، اشتراكات، كيفية الاستخدام، أو أي استفسار آخر.
                 </p>
                 <div className="grid gap-1.5 px-1">
                   {SUGGESTIONS.map((s, i) => (
@@ -272,23 +310,33 @@ export function PlatformChatWidget() {
             )}
 
             {messages.map((m, i) => (
-              <MessageBubble key={i} role={m.role} content={m.content} />
+              <div key={i}>
+                <MessageBubble role={m.role} content={m.content} />
+                {m.role === "assistant" && m.supportNeeded && (
+                  <SupportCard onGo={goToSupport} />
+                )}
+              </div>
             ))}
 
             {streaming && (
-              <MessageBubble role="assistant" content={streamBuf || "···"} streaming={!streamBuf} />
+              <div>
+                <MessageBubble role="assistant" content={streamBuf || "···"} streaming={!streamBuf} />
+                {streamSupportNeeded && streamBuf && (
+                  <SupportCard onGo={goToSupport} />
+                )}
+              </div>
             )}
           </div>
 
           {/* Input */}
-          <form onSubmit={onSubmit} className="border-t border-white/10 bg-slate-950/60 p-2.5">
+          <form onSubmit={onSubmit} className="border-t border-white/10 bg-slate-950/60 p-2.5 shrink-0">
             <div className="flex items-end gap-2 bg-white/[0.05] border border-white/10 focus-within:border-amber-400/50 rounded-xl px-2.5 py-1.5 transition-colors">
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder="اكتب سؤالك هنا..."
+                placeholder="اكتب مشكلتك أو سؤالك هنا..."
                 rows={1}
                 disabled={streaming}
                 maxLength={2000}
@@ -309,12 +357,38 @@ export function PlatformChatWidget() {
               </button>
             </div>
             <div className="text-[9px] text-white/30 text-center mt-1.5">
-              مساعد ذكي — قد يخطئ أحيانًا. للمساعدة البشرية افتح <a href="/support" className="text-gold hover:underline">صفحة الدعم</a>.
+              مرشد ذكي — قد يخطئ أحيانًا. للمساعدة البشرية المباشرة{" "}
+              <button type="button" onClick={goToSupport} className="text-amber-400/70 hover:text-amber-400 underline transition-colors">
+                افتح صفحة الدعم
+              </button>
             </div>
           </form>
         </div>
       )}
     </>
+  );
+}
+
+function SupportCard({ onGo }: { onGo: () => void }) {
+  return (
+    <div className="mt-2 mx-0.5 rounded-xl overflow-hidden border border-amber-400/25 bg-gradient-to-br from-amber-500/10 to-amber-600/5">
+      <div className="flex items-center gap-2.5 px-3.5 py-3">
+        <div className="w-8 h-8 rounded-lg bg-amber-400/15 border border-amber-400/25 flex items-center justify-center shrink-0">
+          <HeadphonesIcon className="w-4 h-4 text-amber-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-bold text-white/90">هل تريد مساعدة بشرية؟</p>
+          <p className="text-[10.5px] text-white/50 leading-snug">تواصل مع فريق الدعم مباشرةً</p>
+        </div>
+        <button
+          onClick={onGo}
+          className="shrink-0 flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all bg-amber-400/20 hover:bg-amber-400/35 text-amber-300 border border-amber-400/30"
+        >
+          <ExternalLink className="w-3 h-3" />
+          الدعم
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -331,9 +405,9 @@ function MessageBubble({ role, content, streaming }: { role: "user" | "assistant
       >
         {streaming ? (
           <div className="flex items-center gap-1.5 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "0ms" }}></span>
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "120ms" }}></span>
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "240ms" }}></span>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "120ms" }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: "240ms" }} />
           </div>
         ) : (
           <div

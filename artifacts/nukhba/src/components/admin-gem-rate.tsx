@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,8 +86,15 @@ export function AdminGemRate() {
   const [draft, setDraft] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Which auxiliary datasets failed to load → the calculator is degraded.
+  const [calcWarnings, setCalcWarnings] = useState<string[]>([]);
+  // Monotonic sequence: a stale (older) load must never overwrite newer state,
+  // and a load resolving mid-save must not clobber the just-saved rate.
+  const loadSeqRef = useRef(0);
+  const savingRef = useRef(false);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
       const [rateRes, pricesRes, ratesRes] = await Promise.all([
@@ -95,33 +102,58 @@ export function AdminGemRate() {
         fetch("/api/admin/plan-prices", { credentials: "include" }),
         fetch("/api/admin/exchange-rates", { credentials: "include" }),
       ]);
+      if (seq !== loadSeqRef.current) return; // superseded by a newer load
       if (!rateRes.ok) throw new Error(`HTTP ${rateRes.status}`);
       const rj = (await rateRes.json()) as GemRate;
-      setRate(rj);
-      setDraft(String(Math.round(rj.gemsPer1M)));
-
-      if (pricesRes.ok) setPrices((await pricesRes.json()) as PriceResponse);
-      if (ratesRes.ok) {
-        const ej = (await ratesRes.json()) as { rates: ExchangeRateRow[] };
-        const next: Record<Region, number> = { ...FALLBACK_YER_PER_USD };
-        for (const row of ej.rates ?? []) {
-          if (Number.isFinite(row.yerPerUsd) && row.yerPerUsd > 0) next[row.region] = row.yerPerUsd;
-        }
-        setYerPerUsd(next);
+      if (seq !== loadSeqRef.current) return;
+      // Never overwrite the rate/draft while a save is in flight — the save's
+      // response is fresher than anything this load fetched.
+      if (!savingRef.current) {
+        setRate(rj);
+        setDraft(String(Math.round(rj.gemsPer1M)));
       }
+
+      const warnings: string[] = [];
+      if (pricesRes.ok) {
+        const pj = (await pricesRes.json().catch(() => null)) as PriceResponse | null;
+        if (seq !== loadSeqRef.current) return;
+        if (pj && Array.isArray(pj.prices)) setPrices(pj);
+        else warnings.push("أسعار الباقات");
+      } else {
+        warnings.push("أسعار الباقات");
+      }
+      if (ratesRes.ok) {
+        const ej = (await ratesRes.json().catch(() => null)) as { rates: ExchangeRateRow[] } | null;
+        if (seq !== loadSeqRef.current) return;
+        if (ej && Array.isArray(ej.rates)) {
+          const next: Record<Region, number> = { ...FALLBACK_YER_PER_USD };
+          for (const row of ej.rates) {
+            if (Number.isFinite(row.yerPerUsd) && row.yerPerUsd > 0) next[row.region] = row.yerPerUsd;
+          }
+          setYerPerUsd(next);
+        } else {
+          warnings.push("أسعار الصرف");
+        }
+      } else {
+        warnings.push("أسعار الصرف");
+      }
+      setCalcWarnings(warnings);
     } catch (err: any) {
+      if (seq !== loadSeqRef.current) return;
       toast({ variant: "destructive", title: "تعذّر تحميل سعر الجوهرة", description: err?.message ?? "حاول مرة أخرى." });
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 
   // Live draft rate → derived constants (used by the calculator before saving).
+  // The knob is a whole-gem count — round to an integer so display, save, and
+  // calculator all agree with what the server persists.
   const draftGemsPer1M = useMemo(() => {
     const n = Number(toEnglishDigits(draft).trim());
-    return Number.isFinite(n) && n > 0 ? n : NaN;
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : NaN;
   }, [draft]);
 
   const refUsd = rate?.refUsdPer1MTokens ?? 0.25;
@@ -170,6 +202,7 @@ export function AdminGemRate() {
       if (!ok) return;
     }
     setSaving(true);
+    savingRef.current = true;
     try {
       const r = await fetch("/api/admin/v4/gem-rate", {
         method: "PUT",
@@ -179,6 +212,10 @@ export function AdminGemRate() {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      // Invalidate any load that started BEFORE this save — its (pre-save)
+      // payload is now stale and must not overwrite the saved rate.
+      loadSeqRef.current++;
+      setLoading(false);
       setRate(j as GemRate);
       setDraft(String(Math.round((j as GemRate).gemsPer1M)));
       toast({ title: "تم حفظ سعر الجوهرة", description: `${fmtGems(draftGemsPer1M)} جوهرة لكل مليون رمز`, className: "bg-emerald-600 border-none text-white" });
@@ -186,6 +223,7 @@ export function AdminGemRate() {
       toast({ variant: "destructive", title: "فشل الحفظ", description: err?.message ?? "حاول مرة أخرى." });
     } finally {
       setSaving(false);
+      savingRef.current = false;
     }
   }
 
@@ -273,6 +311,14 @@ export function AdminGemRate() {
           <Calculator className="w-4 h-4 text-emerald-400" /> حاسبة أمان الباقات
           <span className="text-[10px] font-normal text-muted-foreground">(إذا استهلك الطالب كل جواهره)</span>
         </h3>
+        {calcWarnings.length > 0 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 mb-3 flex items-start gap-2 text-xs text-amber-200">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <div>
+              تعذّر تحميل: <span className="font-bold">{calcWarnings.join("، ")}</span> — الحاسبة تعرض قيماً افتراضية أو ناقصة وقد لا تعكس الوضع الحقيقي. اضغط «تحديث» لإعادة المحاولة.
+            </div>
+          </div>
+        )}
         {lossCells.length > 0 && (
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 mb-3 flex items-start gap-2 text-xs text-red-200">
             <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />

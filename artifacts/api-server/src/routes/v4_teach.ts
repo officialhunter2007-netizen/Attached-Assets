@@ -22,7 +22,7 @@
 
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { randomBytes } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   db,
   v4LessonsTable,
@@ -547,6 +547,24 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       logger.warn?.(`[v4/teach] memory fetch failed user=${uid}: ${String((memErr as any)?.message ?? memErr)}`);
     }
 
+    // Load explained-terms file — pre-fetched here and passed to the prompt
+    // builder so the teacher sees what the student already knows. Failure is
+    // non-blocking: missing terms = "start from zero" (safe default).
+    let explainedTermsNote: string | undefined;
+    try {
+      const termRows = await db.execute(sql.raw(
+        `SELECT term FROM v4_explained_terms WHERE user_id = ${uid} AND subject_id = '${slug.replace(/'/g, "''")}' ORDER BY explained_at ASC LIMIT 150`
+      ));
+      const termsList: string[] = ((termRows as any).rows ?? []).map((r: any) => r.term as string);
+      if (termsList.length > 0) {
+        explainedTermsNote = `مصطلحات سبق شرحها لهذا الطالب (استخدمها بحرية — لا تُعِد شرحها):\n${termsList.map((t) => `  • ${t}`).join("\n")}\nأي مصطلح لا يظهر هنا = لم يُشرح بعد → اشرحه أولاً قبل استخدامه.`;
+      } else {
+        explainedTermsNote = "ملف المصطلحات فارغ — الطالب لم يتعلّم بعد أي مصطلح في هذه المادة. ابدأ من الصفر التام.";
+      }
+    } catch (termErr) {
+      logger.warn?.(`[v4/teach] explained terms load failed user=${uid}: ${String((termErr as any)?.message ?? termErr)}`);
+    }
+
     const built = await buildTeacherSystemPrompt({
       student: {
         userId: uid,
@@ -569,6 +587,9 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       // teacher response from the PREVIOUS completed lesson (captured on
       // LESSON_MASTERED). Injected as Layer 3a so the teacher can bridge.
       previousLessonContext: (studentPath?.lastLessonContext as any) ?? undefined,
+      // Explained-terms file: list of already-explained terms so the teacher
+      // never re-explains them and never asks about un-explained terms.
+      explainedTermsNote,
     });
     systemPrompt = built.systemPrompt;
     promptTimeFacet = built.askedFacet;
@@ -1126,6 +1147,13 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     //      detection logic so saved transcripts are as clean as the live stream.
     fullText = fullText.replace(/\[\[SCENE:[\s\S]*?\]\]/gi, "");
     fullText = stripThinkingLeakFromText(fullText);
+    // Capture [TERM_EXPLAINED: term] tags BEFORE stripping — these are the
+    // new terms the teacher explained this turn. Persisted to DB below.
+    const __termExplainedCaptures = Array.from(
+      fullText.matchAll(/\[TERM_EXPLAINED:\s*([^\]]+?)\s*\]/gi),
+    );
+    // Strip from persisted transcript so stored messages stay clean.
+    fullText = fullText.replace(/\[TERM_EXPLAINED:[^\]]*\]/gi, "");
 
     // Let every per-image pipeline finish: each one self-bills its fal spend
     // (idempotently) and emits imageReady. Awaiting here means the teaching
@@ -1197,6 +1225,26 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
       { userId: uid, subjectSlug: slug, lessonId: lesson.id, lessonCode },
       tags,
     );
+
+    // ── 7x. Persist [TERM_EXPLAINED: term] tags ─────────────────────────
+    // Tags were captured from fullText BEFORE it was stripped (see above).
+    // Each unique term is upserted into v4_explained_terms so the next
+    // session's prompt builder knows what the student already knows.
+    if (__termExplainedCaptures.length > 0) {
+      (async () => {
+        for (const m of __termExplainedCaptures) {
+          const term = m[1]?.trim().slice(0, 200);
+          if (!term || term.length < 2) continue;
+          try {
+            await db.execute(sql.raw(
+              `INSERT INTO v4_explained_terms (user_id, subject_id, term, explained_at) VALUES (${uid}, '${slug.replace(/'/g, "''")}', '${term.replace(/'/g, "''")}', NOW()) ON CONFLICT (user_id, subject_id, term) DO NOTHING`,
+            ));
+          } catch (e) {
+            logger.warn?.(`[v4/teach] explained terms persist failed: ${String((e as any)?.message ?? e)}`);
+          }
+        }
+      })().catch(() => {});
+    }
 
     // Fire-and-forget: on LESSON_MASTERED, store the tail of the teacher's
     // final response as cross-lesson context so the NEXT lesson's first turn

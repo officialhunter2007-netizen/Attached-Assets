@@ -289,56 +289,8 @@ export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
   // Signed-out → render nothing (the ?ref capture effect above still ran).
   if (!user) return null;
 
-  // ── Trigger button ─────────────────────────────────────────────────────────
-  if (!open) {
-    const isEligible = info?.hasEligibleSubscription !== false;
-    const buttonClass = inline
-      ? "w-full flex items-center gap-3 rounded-2xl px-5 py-3.5 text-sm font-extrabold text-white mb-6"
-      : "fixed left-3 top-[76px] z-[120] flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-extrabold text-white";
-
-    if (!isEligible) return null;
-
-    return (
-      <motion.button
-        onClick={openModal}
-        dir={ar ? "rtl" : "ltr"}
-        initial={{ opacity: 0, y: inline ? 12 : -8 }}
-        animate={{
-          opacity: 1,
-          y: 0,
-          boxShadow: [
-            "0 0 18px rgba(56,189,248,0.55), 0 0 36px rgba(14,165,233,0.30)",
-            "0 0 28px rgba(56,189,248,0.85), 0 0 56px rgba(14,165,233,0.45)",
-            "0 0 18px rgba(56,189,248,0.55), 0 0 36px rgba(14,165,233,0.30)",
-          ],
-        }}
-        transition={{
-          opacity: { duration: 0.4 },
-          y: { duration: 0.4 },
-          boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
-        }}
-        whileHover={{ scale: inline ? 1.01 : 1.05 }}
-        whileTap={{ scale: 0.97 }}
-        className={buttonClass}
-        style={{
-          background: "linear-gradient(135deg, #7dd3fc 0%, #38bdf8 45%, #0ea5e9 100%)",
-          border: "1px solid rgba(186,230,253,0.7)",
-          textShadow: "0 1px 2px rgba(2,132,199,0.45)",
-        }}
-        data-testid="referral-gems-button"
-      >
-        <Sparkles className="w-4 h-4 shrink-0" />
-        <span className="flex-1 text-start">
-          {ar ? "احصل على جواهر اضافية" : "Get extra gems"}
-        </span>
-        {remaining > 0 && (
-          <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs font-black tabular-nums">
-            {remaining} 💎
-          </span>
-        )}
-      </motion.button>
-    );
-  }
+  // Trigger button removed.
+  if (!open) return null;
 
   const pct =
     reward && reward.earnedGems > 0
@@ -360,8 +312,7 @@ export function ReferralGemsModal({ inline = false }: { inline?: boolean }) {
             setOpen(false);
             setError(null);
             setSelectedSlug("");
-            setAmount(100);
-            setAllocating(false);
+            setAmount("100");
           }}
           className={`absolute top-3 ${ar ? "left-3" : "right-3"} text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/10 transition`}
           aria-label={ar ? "إغلاق" : "Close"}

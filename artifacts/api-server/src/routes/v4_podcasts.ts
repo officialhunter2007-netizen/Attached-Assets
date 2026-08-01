@@ -54,7 +54,7 @@ const upload = multer({
       file.mimetype.startsWith("audio/") ||
       file.mimetype === "video/mp4" ||          // podcasts exported as MP4 audio
       file.mimetype === "application/octet-stream";
-    cb(ok ? null : new Error("Only audio files are allowed"), ok);
+    if (ok) cb(null, true); else cb(new Error("Only audio files are allowed"));
   },
 });
 

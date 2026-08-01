@@ -409,8 +409,9 @@ function buildOutputCardHtml(text: string): string {
   return (
     `<pre class="output-enhanced">` +
     `<div class="output-head">` +
-    `<span class="output-icon" aria-hidden="true">▶</span>` +
-    `<span class="output-lang">الناتج على الشاشة</span>` +
+    `<span class="output-icon" aria-hidden="true"></span>` +
+    `<span class="output-lang">مخرجات التشغيل</span>` +
+    `<span class="output-shell-label" aria-hidden="true">bash $</span>` +
     `<button type="button" class="copy-code-btn" aria-label="نسخ الناتج">نسخ</button>` +
     `</div>` +
     `<code class="output-text">${escapeHtml(outText)}</code>` +
@@ -425,10 +426,11 @@ function buildCodeCardHtml(text: string, lang: string, highlighted: string): str
   const label = prettyLangName(lang);
   const codeClass = lang ? `language-${lang} hljs` : "hljs";
   return (
-    `<pre class="code-enhanced">` +
+    `<pre class="code-enhanced" data-lang="${lang}">` +
     `<div class="code-head">` +
     `<span class="code-dots" aria-hidden="true"><i></i><i></i><i></i></span>` +
     `<span class="code-lang">${label}</span>` +
+    `<button type="button" class="explain-code-btn" aria-label="شرح سطر بسطر">📖 شرح</button>` +
     `<button type="button" class="copy-code-btn" aria-label="نسخ الكود">نسخ</button>` +
     `</div>` +
     `<div class="code-body">` +
@@ -451,8 +453,21 @@ let blockquoteDepth = 0;
 marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }): string {
-      if (lang && OUTPUT_LANGS.has(lang.toLowerCase().trim())) {
+      const normalizedLang = lang ? lang.toLowerCase().trim() : "";
+      if (normalizedLang && OUTPUT_LANGS.has(normalizedLang)) {
         return buildOutputCardHtml(text);
+      }
+      // Heuristic: model writes "output" as first line inside a generic fence
+      // (```\noutput\nName: Ahmed\n…\n```) instead of using ```output as the
+      // lang tag. Detect this BEFORE hljs runs — otherwise hljs auto-detects
+      // the content as YAML/text and decorateCodeBlock marks it as a code block;
+      // by then enhanceTeacherDom skips it (`.hljs` guard fires first).
+      if (!normalizedLang) {
+        const firstNl = text.indexOf("\n");
+        const firstLine = (firstNl === -1 ? text : text.slice(0, firstNl)).trim().toLowerCase();
+        if (firstLine === "output") {
+          return buildOutputCardHtml(firstNl === -1 ? "" : text.slice(firstNl + 1));
+        }
       }
       try {
         const language = lang && hljs.getLanguage(lang) ? lang : null;
@@ -525,12 +540,64 @@ if (typeof document !== "undefined") {
       btn.textContent = "تعذر النسخ";
     }
   }, true);
+
+  // ── Explain-code button ────────────────────────────────────────────────────
+  document.addEventListener("click", (ev) => {
+    const target = ev.target as HTMLElement;
+    const btn = target.closest?.(".explain-code-btn") as HTMLElement | null;
+    if (!btn) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    const pre = btn.closest("pre.code-enhanced");
+    if (!pre) return;
+    const codeEl = pre.querySelector("code");
+    const code = codeEl?.textContent || "";
+    const lang = pre.getAttribute("data-lang") || "";
+    window.dispatchEvent(new CustomEvent("nukhba:explain-code", { detail: { code, lang } }));
+  }, true);
 }
 
 export function enhanceTeacherDom(root: HTMLElement | null): void {
   if (!root) return;
   promoteParagraphCallouts(root);
   classifyCallouts(root);
+
+  // ── RTL arrow fix ──────────────────────────────────────────────────────────
+  // The whole .ai-msg container uses dir="rtl". The Unicode RIGHT ARROW (→)
+  // points towards the START of reading in RTL, which is visually backwards.
+  // Replace every prose → with ← so the arrow always points forward.
+  // We deliberately skip <code> and <pre> blocks (code is LTR).
+  {
+    const PROSE_TAGS = new Set(["P","LI","TD","TH","BLOCKQUOTE","H1","H2","H3","H4","H5","H6","SPAN","DIV","LABEL"]);
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (node.textContent?.includes("→")) {
+          node.textContent = node.textContent.replace(/→/g, "←");
+        }
+        return;
+      }
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tag = (node as Element).tagName;
+        // Never enter code/pre — their content is LTR and arrows are intentional
+        if (tag === "CODE" || tag === "PRE") return;
+        if (PROSE_TAGS.has(tag) || tag === "DIV" || tag === "SPAN") {
+          node.childNodes.forEach(walk);
+        }
+      }
+    };
+    root.childNodes.forEach(walk);
+  }
+
+  // Wrap every table in a scrollable div so:
+  //   • too-wide  → horizontal scroll (أعمدة كثيرة)
+  //   • too-tall  → vertical scroll   (صفوف كثيرة) capped by CSS max-height
+  root.querySelectorAll<HTMLTableElement>("table").forEach((table) => {
+    if (table.parentElement?.classList.contains("table-scroll-wrapper")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "table-scroll-wrapper";
+    table.parentNode?.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  });
   root.querySelectorAll<HTMLElement>("pre code").forEach((el) => {
     if (el.classList.contains("hljs") || el.classList.contains("output-text")) return;
     const pre = el.parentElement;
@@ -542,6 +609,21 @@ export function enhanceTeacherDom(root: HTMLElement | null): void {
       if (OUTPUT_LANGS.has(rawLang) && pre && pre.tagName === "PRE" && !pre.querySelector(".output-head")) {
         decorateOutputBlock(pre, el);
         return;
+      }
+      // Heuristic: model sometimes writes the word "output" as the first line
+      // inside a generic fenced block instead of using ```output as the lang.
+      // Detect this: no known lang AND first non-empty line is exactly "output"
+      // (case-insensitive). Strip the sentinel line, then treat as output.
+      if (!rawLang && pre && pre.tagName === "PRE" && !pre.querySelector(".output-head")) {
+        const rawText = el.textContent || "";
+        const firstNewline = rawText.indexOf("\n");
+        const firstLine = (firstNewline === -1 ? rawText : rawText.slice(0, firstNewline)).trim().toLowerCase();
+        if (firstLine === "output") {
+          // Strip the "output" sentinel line from the displayed text
+          el.textContent = firstNewline === -1 ? "" : rawText.slice(firstNewline + 1);
+          decorateOutputBlock(pre, el);
+          return;
+        }
       }
       let langName = "";
       if (langMatch && hljs.getLanguage(langMatch[1])) {
@@ -577,11 +659,15 @@ function decorateOutputBlock(pre: HTMLElement, code: HTMLElement): void {
   const icon = document.createElement("span");
   icon.className = "output-icon";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = "▶";
 
   const label = document.createElement("span");
   label.className = "output-lang";
-  label.textContent = "الناتج على الشاشة";
+  label.textContent = "مخرجات التشغيل";
+
+  const shell = document.createElement("span");
+  shell.className = "output-shell-label";
+  shell.setAttribute("aria-hidden", "true");
+  shell.textContent = "bash $";
 
   const btn = document.createElement("button");
   btn.type = "button";
@@ -591,6 +677,7 @@ function decorateOutputBlock(pre: HTMLElement, code: HTMLElement): void {
 
   head.appendChild(icon);
   head.appendChild(label);
+  head.appendChild(shell);
   head.appendChild(btn);
 
   pre.insertBefore(head, code);
@@ -599,6 +686,7 @@ function decorateOutputBlock(pre: HTMLElement, code: HTMLElement): void {
 function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string): void {
   if (pre.querySelector(".code-head")) return;
   pre.classList.add("code-enhanced");
+  if (langName) pre.setAttribute("data-lang", langName);
 
   const head = document.createElement("div");
   head.className = "code-head";
@@ -612,6 +700,12 @@ function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string
   lang.className = "code-lang";
   lang.textContent = prettyLangName(langName);
 
+  const explainBtn = document.createElement("button");
+  explainBtn.type = "button";
+  explainBtn.className = "explain-code-btn";
+  explainBtn.textContent = "📖 شرح";
+  explainBtn.setAttribute("aria-label", "شرح سطر بسطر");
+
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "copy-code-btn";
@@ -620,6 +714,7 @@ function decorateCodeBlock(pre: HTMLElement, code: HTMLElement, langName: string
 
   head.appendChild(dots);
   head.appendChild(lang);
+  head.appendChild(explainBtn);
   head.appendChild(btn);
 
   const codeText = (code.textContent || "").replace(/\n$/, "");

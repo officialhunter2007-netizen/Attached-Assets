@@ -2171,6 +2171,7 @@ const MessageToolbar = memo(function MessageToolbar({
   onShare,
   onRate,
   onVisualExplain,
+  visualExplainEnabled,
   canRegenerate,
   ratingKey,
 }: {
@@ -2179,6 +2180,7 @@ const MessageToolbar = memo(function MessageToolbar({
   onShare?: () => void;
   onRate?: (value: "up" | "down") => void;
   onVisualExplain?: () => void;
+  visualExplainEnabled?: boolean;
   canRegenerate: boolean;
   ratingKey?: string;
 }) {
@@ -2321,14 +2323,15 @@ const MessageToolbar = memo(function MessageToolbar({
       {onVisualExplain && (
         <button
           type="button"
-          className="msg-toolbar-btn"
-          style={{ color: "rgb(251 191 36 / 0.85)" }}
-          title={t.toolbarVisualExplainTitle}
+          className={`msg-toolbar-btn${visualExplainEnabled ? " msg-toolbar-btn-ve-active" : ""}`}
+          style={!visualExplainEnabled ? { color: "rgb(255 255 255 / 0.28)", cursor: "not-allowed" } : undefined}
+          title={visualExplainEnabled ? t.toolbarVisualExplainTitle : "لا يوجد مشرف متاح حالياً"}
           aria-label={t.toolbarVisualExplainTitle}
-          onClick={onVisualExplain}
+          onClick={visualExplainEnabled ? onVisualExplain : undefined}
+          disabled={!visualExplainEnabled}
         >
           <Eye className="w-3.5 h-3.5" />
-          <span className="msg-toolbar-label">{t.toolbarVisualExplain}</span>
+          <span style={{ fontSize: "11px", fontWeight: 700 }}>{t.toolbarVisualExplain}</span>
         </button>
       )}
     </div>
@@ -3205,7 +3208,102 @@ function SubjectPathChat({
     html: string | null;
     loading: boolean;
     error: string | null;
+    mode?: 'admin';
   } | null>(null);
+  const [visualExplainReady, setVisualExplainReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/public/visual-explain/any-ready", { credentials: "include" });
+        if (!cancelled && r.ok) { const d = await r.json(); setVisualExplainReady(!!d.anyReady); }
+      } catch { /* ignore */ }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // Pending visual-explain request (background polling — survives overlay close)
+  const [pendingVERequest, setPendingVERequest] = useState<{ requestId: string; html?: string } | null>(null);
+  useEffect(() => {
+    if (!pendingVERequest?.requestId || pendingVERequest.html) return;
+    let cancelled = false;
+    const { requestId } = pendingVERequest;
+    const POLL_MS = 5_000;
+    const DEADLINE = Date.now() + 15 * 60_000;
+    (async () => {
+      while (!cancelled && Date.now() < DEADLINE) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        if (cancelled) break;
+        try {
+          const r = await fetch(`/api/student/visual-explain/result/${requestId}`, { credentials: "include" });
+          if (!r.ok) continue;
+          const d = await r.json();
+          if (d.status === "done") {
+            if (!cancelled) {
+              setPendingVERequest({ requestId, html: d.html });
+              // إذا الـ overlay مفتوح وفي حالة loading → نحدّثه تلقائياً
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: d.html, loading: false, error: null, mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+          if (d.status === "expired") {
+            if (!cancelled) {
+              setPendingVERequest(null);
+              // Re-check supervisor availability immediately so the button re-enables
+              // without waiting for the 30-second polling interval.
+              fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+                .catch(() => {});
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: null, loading: false, error: "لا يوجد مشرف متاح الآن — حاول مرة أخرى لاحقاً.", mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+          if (d.status === "error") {
+            if (!cancelled) {
+              setPendingVERequest(null);
+              // Re-check supervisor availability immediately so the button re-enables.
+              fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+                .catch(() => {});
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: null, loading: false, error: d.error || "تعذّر إنشاء الشرح البصري.", mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+        } catch { /* keep polling */ }
+      }
+      if (!cancelled) {
+        setPendingVERequest(null);
+        // Re-check supervisor availability immediately so the button re-enables.
+        fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+          .catch(() => {});
+        setVisualOverlay(prev =>
+          prev?.mode === "admin" && prev.loading
+            ? { html: null, loading: false, error: "انتهت مهلة الانتظار (15 دقيقة) — حاول مرة أخرى", mode: "admin" }
+            : prev
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingVERequest?.requestId]);
   const consumedSourcesParamRef = useRef(false);
   useEffect(() => {
     if (initialSourcesMaterialId == null || consumedSourcesParamRef.current) return;
@@ -4227,41 +4325,40 @@ function SubjectPathChat({
   }, [isStreaming, sessionPaused]);
 
   // ── Visual Explain ────────────────────────────────────────────────────────
-  // Posts the teacher message to the backend → Playwright → manus.im pipeline.
-  // Shows an overlay modal with a self-contained interactive HTML page.
+  // Submits the request to the admin queue. Polling runs in the background
+  // useEffect above (survives overlay close) and auto-shows a toast when ready.
   const handleVisualExplain = useCallback(async (messageContent: string) => {
-    setVisualOverlay({ html: null, loading: true, error: null });
-    const POLL_MS  = 5_000;
-    const DEADLINE = Date.now() + 10 * 60_000; // 10 min max
+    setVisualOverlay({ html: null, loading: true, error: null, mode: 'admin' });
     try {
-      const startRes = await fetch("/api/v4/visual-explain/start", {
+      // آخر 5 رسائل قبل الرسالة المستهدفة (سياق للمشرف)
+      const allMsgs = messagesRef.current ?? messages;
+      const targetIdx = allMsgs.findIndex(m => m.content === messageContent);
+      const sliceEnd = targetIdx >= 0 ? targetIdx : allMsgs.length;
+      const contextMsgs = [
+        ...allMsgs.slice(Math.max(0, sliceEnd - 5), sliceEnd).map(m => ({
+          role: m.role,
+          content: m.content ?? "",
+        })),
+        { role: "assistant" as const, content: messageContent, isTarget: true },
+      ];
+
+      const startRes = await fetch("/api/student/visual-explain/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ message: messageContent }),
+        body: JSON.stringify({ messageText: messageContent, context: contextMsgs }),
       });
       if (!startRes.ok) {
         const d = await startRes.json().catch(() => ({}));
         throw new Error(d.error || tr.subject.visualExplainError);
       }
-      const { jobId } = await startRes.json();
-
-      while (Date.now() < DEADLINE) {
-        await new Promise(r => setTimeout(r, POLL_MS));
-        const statusRes = await fetch(`/api/v4/visual-explain/status/${jobId}`, { credentials: "include" });
-        if (!statusRes.ok) {
-          const d = await statusRes.json().catch(() => ({}));
-          throw new Error(d.error || tr.subject.visualExplainError);
-        }
-        const data = await statusRes.json();
-        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null }); return; }
-        if (data.status === "error") { throw new Error(data.error || tr.subject.visualExplainError); }
-      }
-      throw new Error("انتهت مهلة الانتظار (5 دقائق) — حاول مرة أخرى");
+      const { requestId } = await startRes.json();
+      setPendingVERequest({ requestId }); // background useEffect takes over polling
     } catch (err) {
       setVisualOverlay({
         html: null, loading: false,
         error: err instanceof Error ? err.message : tr.subject.visualExplainError,
+        mode: 'admin',
       });
     }
   }, [tr.subject]);
@@ -5714,6 +5811,7 @@ function SubjectPathChat({
                           ratingKey={`${subject.id}:${i}`}
                           onRegenerate={handleRegenerateLast}
                           onVisualExplain={!(msg.content || '').trim().startsWith("⚠️") ? () => handleVisualExplain(msg.content) : undefined}
+                         visualExplainEnabled={visualExplainReady}
                           canRegenerate={isLastMsg && !isStreaming && !sessionPaused}
                           onRate={(value) => {
                             try {
@@ -6268,9 +6366,13 @@ function SubjectPathChat({
                       <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
                     </div>
                   </div>
-                  <p className="text-white font-semibold text-base">{tr.subject.visualExplainLoading}</p>
+                  <p className="text-white font-semibold text-base">
+                    {visualOverlay?.mode === 'admin' ? "في انتظار المشرف..." : tr.subject.visualExplainLoading}
+                  </p>
                   <p className="text-white/45 text-xs text-center max-w-xs leading-relaxed">
-                    {tr.subject.visualExplainLoadingHint}
+                    {visualOverlay?.mode === 'admin'
+                      ? "تم إرسال طلبك إلى المشرف. سيتم عرض الشرح فور الانتهاء منه."
+                      : tr.subject.visualExplainLoadingHint}
                   </p>
                 </div>
               )}
@@ -6302,6 +6404,36 @@ function SubjectPathChat({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Visual Explain Ready Toast ─────────────────────────────────────── */}
+      {/* يظهر حين ينتهي المشرف والـ overlay مغلق — يمكّن الطالب من فتح النتيجة */}
+      {pendingVERequest?.html && !visualOverlay && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
+          style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", direction: "rtl", minWidth: "260px" }}
+        >
+          <Sparkles className="w-4 h-4 text-black/80 shrink-0" />
+          <span className="font-bold text-black text-sm flex-1">الشرح البصري جاهز!</span>
+          <button
+            type="button"
+            onClick={() => {
+              setVisualOverlay({ html: pendingVERequest.html!, loading: false, error: null, mode: "admin" });
+              setPendingVERequest(null);
+            }}
+            className="px-3 py-1 rounded-xl bg-black/20 hover:bg-black/35 text-black font-bold text-sm transition-colors"
+          >
+            عرض
+          </button>
+          <button
+            type="button"
+            onClick={() => setPendingVERequest(null)}
+            className="w-6 h-6 flex items-center justify-center rounded-full bg-black/15 hover:bg-black/30 transition-colors shrink-0"
+            aria-label="إغلاق"
+          >
+            <X className="w-3.5 h-3.5 text-black/80" />
+          </button>
         </div>
       )}
 

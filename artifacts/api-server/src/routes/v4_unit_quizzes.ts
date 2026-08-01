@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// v4 Unit Quizzes — admin CRUD + student HTML view
+// v4 Unit Quizzes — admin CRUD + student HTML view + AI auto-generation
 //
 //   GET    /api/v4/admin/unit-quizzes          — list all (admin)
 //   POST   /api/v4/admin/unit-quizzes          — create / upsert (admin)
@@ -7,6 +7,7 @@
 //   DELETE /api/v4/admin/unit-quizzes/:id      — delete (admin)
 //   GET    /api/v4/unit-quizzes/:id/view       — serve raw HTML (auth)
 //   GET    /api/v4/unit-quizzes                — list for a specialty/unit (auth)
+//   POST   /api/v4/unit-quizzes/generate       — AI auto-generate & cache (auth)
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { eq } from "drizzle-orm";
@@ -14,11 +15,21 @@ import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { injectQuizBridge } from "../lib/quiz-bridge";
+import { dedupeInflight, HttpError } from "../lib/inflight";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
+
+// Flat gem cost per quiz generation (charged only on cache-miss, once globally).
+const QUIZ_GEN_COST_USD = 0.020; // 20 gems (1 USD = 1000 gems)
 import { validateQuizHtml } from "../lib/validate-quiz-html";
+import {
+  extractUnitContent,
+  generateUnitQuizHtml,
+  GenerateGeminiError,
+} from "../lib/quiz-html-gen";
 
 const router: IRouter = Router();
 
-// ── auth helpers (same pattern as all other v4 routes) ───────────────────────
+// ── auth helpers ─────────────────────────────────────────────────────────────
 
 function getUserId(req: any): number | null {
   return (req.session as any)?.userId ?? null;
@@ -131,7 +142,6 @@ router.delete("/v4/admin/unit-quizzes/:id", requireAdmin, async (req: Request, r
 });
 
 // ── student: view quiz HTML ───────────────────────────────────────────────────
-// Serves the full self-contained HTML page directly (grades itself client-side).
 
 router.get("/v4/unit-quizzes/:id/view", requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = Number(req.params.id);
@@ -175,6 +185,84 @@ router.get("/v4/unit-quizzes", requireAuth, async (req: Request, res: Response):
   } catch (err: any) {
     logger.error({ err: err?.message }, "unit-quizzes: student list failed");
     res.status(500).json({ error: err?.message ?? "db error" });
+  }
+});
+
+// ── AI auto-generate ──────────────────────────────────────────────────────────
+// Idempotent: returns cached quiz if one already exists for this unit+specialty.
+// In-flight deduped: concurrent students for the same unit share ONE AI call.
+
+router.post("/v4/unit-quizzes/generate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = getUserId(req)!;
+  const { specialtySlug, unitCode } = req.body as { specialtySlug?: string; unitCode?: string };
+  if (!specialtySlug || !unitCode) {
+    res.status(400).json({ error: "specialtySlug و unitCode مطلوبان" });
+    return;
+  }
+
+  try {
+    const outcome = await dedupeInflight(
+      `unit-quiz:${specialtySlug}:${unitCode}`,
+      async (): Promise<{ quizId: number; cached: boolean }> => {
+        // 1. Cached quiz → return immediately (no charge — globally shared)
+        const cached = await db.execute(
+          sql`SELECT id FROM v4_unit_quizzes
+              WHERE specialty_slug = ${specialtySlug} AND unit_code = ${unitCode}`
+        );
+        if (cached.rows.length > 0) {
+          return { quizId: Number(cached.rows[0].id), cached: true };
+        }
+
+        // 2. Charge 20 gems flat before AI generation (cache-miss path only)
+        const charge = await chargeV4Ai({
+          requestId: `quiz-gen:unit:${specialtySlug}:${unitCode}:${userId}`,
+          userId,
+          subjectId: specialtySlug,
+          costUsd: QUIZ_GEN_COST_USD,
+          source: "v4_ai_quiz",
+        });
+        if (charge.error) {
+          throw new HttpError(503, "رصيدك من الجواهر غير كافٍ لتوليد الاختبار");
+        }
+
+        // 3. Extract unit content
+        const unitContent = await extractUnitContent(specialtySlug, unitCode).catch((err: any) => {
+          logger.error({ err: err?.message }, "unit-quiz generate: content extraction failed");
+          throw new HttpError(500, "خطأ في استخراج محتوى الوحدة");
+        });
+        if (!unitContent) {
+          throw new HttpError(404, "الوحدة غير موجودة أو لا يوجد منهج منشور لهذا التخصص");
+        }
+
+        // 4. Generate via AI (validates internally; throws on failure)
+        const htmlContent = await generateUnitQuizHtml(unitContent, unitCode, specialtySlug);
+
+        // 5. Save (upsert — race-safe)
+        const title = `${unitContent.name} — اختبار الوحدة`;
+        const result = await db.execute(
+          sql`INSERT INTO v4_unit_quizzes (unit_code, specialty_slug, title, html_content)
+              VALUES (${unitCode}, ${specialtySlug}, ${title}, ${htmlContent})
+              ON CONFLICT (unit_code, specialty_slug)
+              DO UPDATE SET html_content = EXCLUDED.html_content,
+                            title        = EXCLUDED.title,
+                            updated_at   = NOW()
+              RETURNING id`
+        );
+        return { quizId: Number(result.rows[0].id), cached: false };
+      }
+    );
+    res.json(outcome);
+  } catch (err: any) {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    logger.error({ err: err?.message }, "unit-quiz generate: failed");
+    if (err instanceof GenerateGeminiError && err.creditsExhausted) {
+      res.status(503).json({ error: "خدمة الذكاء الاصطناعي متوقفة مؤقتاً، يرجى المحاولة لاحقاً" });
+    } else {
+      res.status(500).json({ error: "فشل توليد الاختبار، يرجى المحاولة مرة أخرى" });
+    }
   }
 });
 

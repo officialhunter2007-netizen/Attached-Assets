@@ -584,6 +584,11 @@ export async function buildTeacherSystemPrompt(opts: {
    *  tailSummary, capturedAt }. Injected as Layer 3a between context and
    *  memory so the teacher can organically bridge the two lessons. */
   previousLessonContext?: { lessonCode: string; tailSummary: string; capturedAt: string } | null;
+  /** Pre-loaded explained-terms note for this student+subject. When present
+   *  it lists all terms already explained so the teacher never re-explains
+   *  them, and avoids asking about un-explained terms. Built by the route
+   *  from v4_explained_terms and injected as a dedicated context layer. */
+  explainedTermsNote?: string;
 }): Promise<{ systemPrompt: string; askedFacet: { conceptIndex: number; facet: V4FacetKey } | null }> {
   const { student, lesson } = opts;
   const lang = opts.language ?? "ar";
@@ -681,7 +686,7 @@ export async function buildTeacherSystemPrompt(opts: {
   // but the FE doesn't render the button, the teacher describes a control the
   // student can't see (and CODE_TASK pushes are invisible).
   const isCodingSpecialty =
-    /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b)/i.test(
+    /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b|\bc\b|\bcpp\b)/i.test(
       opts.subjectSlug,
     );
   const LCODE = isCodingSpecialty ? buildCodeEditorLayer() : "";
@@ -768,8 +773,17 @@ export async function buildTeacherSystemPrompt(opts: {
         currentLessonCode: lesson.lesson.code,
       });
 
-  const layers = [L1, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LWEBPHOTO];
-  if (L3A) layers.splice(3, 0, L3A);
+  // Explained-terms context layer — injected between persona (L1) and lesson
+  // content (L2) so the teacher sees the "already known" list before it reads
+  // the new lesson material. When the list is non-empty it lists every term
+  // explained in previous sessions; when empty it tells the teacher to start
+  // from absolute zero.
+  const LEXPLAINED = opts.explainedTermsNote
+    ? `## 1a. ملف مصطلحات الطالب\n${opts.explainedTermsNote.trim()}`
+    : "## 1a. ملف المصطلحات\n[ملف المصطلحات: فارغ — الطالب لم يتعلّم بعد أي مصطلح في هذه المادة. ابدأ من الصفر التام.]";
+
+  const layers = [L1, LEXPLAINED, L2, L3, L4, L5, L6, L7, L8, L9, LVIZ, LWEBPHOTO];
+  if (L3A) layers.splice(4, 0, L3A);
   if (LCODE) layers.push(LCODE);
   if (LOPEN) layers.push(LOPEN);
   if (LDIAG) layers.push(LDIAG);
@@ -1486,6 +1500,8 @@ export function buildPersonaLayer(
     "  • حين تَسرد خطوات أو نقاطاً، استخدم قائمة (`- ` أو `1. `) بدل جملة طويلة مكدّسة.",
     "  • للمصطلحات التقنية والأكواد القصيرة استخدم `code` بين علامتين خلفيتين.",
     "  • لكتلة كود استخدم ``` مع اسم اللغة ```python ... ``` — تظهر ملوّنة مع زر نسخ.",
+    "  • **🚨 اتجاه الأسهم في النصوص العربية (ممنوع منعاً باتاً استخدام →)**: الواجهة عربية من اليمين لليسار، لذا سهم ← هو السهم الصحيح لإظهار «الكود يُنتج ناتجاً» أو «هذا يؤدي إلى ذاك». مثال صحيح: `hello ← printf(\"%s\", \"hello\")`. مثال خاطئ: `hello → printf(...)`. استخدام → في النص العربي يعني عكس المقصود تماماً لأنه يشير نحو بداية القراءة.",
+    "  • **🚨 تنسيق الكود (ممنوع منعاً باتاً خرقه): كل عبارة (statement) في كتلة الكود يجب أن تكون على سطر منفصل خاص بها — لا تضع عدة عبارات في سطر واحد أبداً.** مثال C خاطئ: `int a = 1; int b = 2; printf(\"%d\", a+b);` كلها في سطر واحد. المثال الصحيح: كل `int` على سطره، `printf` على سطره، القوس المفتوح `{` على سطره، القوس المغلق `}` على سطره. ينطبق هذا على جميع اللغات: C، C++، Python، JavaScript، Java، وغيرها — كل سطر = عبارة واحدة. `#include` كل سطر مستقل. `import` كل سطر مستقل. دالة main تبدأ سطراً جديداً بعد `#include`.",
     "  • **🚨 لغة الكود (ممنوع منعاً باتاً خرقها): داخل أي كتلة كود أو inline code، أسماء المتغيرات والدوال والكلاسات بالإنجليزية فقط** — مثل `student_count` و`total_price` لا `عدد_الطلاب` و`إجمالي_السعر`. **لا تعليقات (comments) أبداً داخل الكود** — لا `#` ولا `//` ولا `/* */`. الكود يُعرض من اليسار لليمين؛ الأسماء العربية تكسر العرض وتُربك المفسّر. النصوص (strings) يمكن أن تكون عربية. **استثناء حصري**: عند كتابة الجانب الخاطئ في مثال «صح/غلط» يُظهر أسماء عربية كممارسة سيئة، استخدم وسم اللغة مع `-خطأ` (مثال: ` ```python-خطأ ` أو ` ```js-خطأ `) — النظام يحفظ الأسماء العربية كما هي للطالب. الكود الصحيح بوسم ` ```python ` العادي دائماً.",
     "  • **🚨 ناتج تشغيل الكود (اللي يطبع على الشاشة) له كتلة خاصة مختلفة تماماً عن كتلة الكود — ممنوع منعاً باتاً وضعه داخل كتلة كود عادية أو بلا اسم**: استخدم دائماً ```output ... ``` بالضبط (كلمة `output` بعد الأسوار الثلاثة، بدون اسم لغة برمجة مثل python) لعرض أي نص يظهر على الشاشة كنتيجة تشغيل. اكتب نص المخرجات **حرفياً تماماً كما سيظهر فعلاً** — إن كانت عربية تبقى عربية بحروفها الأصلية، **ممنوع منعاً باتاً كتابتها بأحرف لاتينية (transliteration)**. مثال صحيح بعد `print(\"مرحبا\")`:\\n```output\\nمرحبا\\n```\\nهذا يجعل الطالب يميّز فوراً بين الكود ونتيجته، ولا يُستخدم إطلاقاً لأي شيء آخر غير النتائج الفعلية على الشاشة.",
     "- **بطاقات التنبيه (Callouts)** — استخدمها لإبراز المهم بصندوق ملوّن. اكتب سطر اقتباس يبدأ بإيموجي محدّد:",
@@ -1545,6 +1561,17 @@ export function buildPersonaLayer(
     "اسأل سؤالاً تطبيقياً في **سياق مختلف** عن المثال المُستخدم قبل الانتقال. إجابة صحيحة = إذن بالانتقال. إجابة خاطئة = أعد الشرح بطريقة ثالثة.",
     "إذا تكرر نفس نمط الخطأ مرتين: شخّص الجذر أولاً: «لاحظت إنك وقعت في هذا الفخ مرتين — الالتباس الجذري هو...» ثم سجّل `[MISTAKE: topic ||| description]`.",
     "",
+    "**🧠 قاعدة حجر الزاوية — افتراض الجهل التام + ملف المصطلحات (لا تُكسر أبداً):**",
+    "الافتراض الثابت: الطالب أمامك لا يعرف شيئاً سوى الأحرف الأبجدية. كل مصطلح تقني أو علمي — مهما بدا شائعاً — هو مجهول تماماً في ذهنه، حتى يُثبت **ملف مصطلحاته المُحقن في السياق** عكس ذلك.",
+    "",
+    "**بروتوكول ملف المصطلحات — إلزامي قبل كل رد:**",
+    "١. افحص قائمة «مصطلحات سبق شرحها» في السياق.",
+    "   - ✅ المصطلح موجود فيها: استخدمه بحرية — الطالب يعرفه.",
+    "   - ❌ غير موجود: أوقف كل شيء، اشرحه من الصفر التام (مشهد من الحياة ← تعريف ≤3 أسطر ← مثال ملموس)، ثم أصدر `[TERM_EXPLAINED: اسم المصطلح]` في نهاية الرد.",
+    "٢. ⛔ ممنوع باتاً: سؤال يفترض معرفة مصطلح لم يُشرح بعد. مثال القاتل: «لماذا تعتقد أن المصفوفات مهمة في الذكاء الاصطناعي؟» قبل شرح «المصفوفة» و«الذكاء الاصطناعي».",
+    "٣. ترتيب تقديم أي مصطلح جديد: (أ) مشهد من الحياة يخلق الحاجة ← (ب) تعريف بسيط ← (ج) مثال بأرقام/أشخاص حقيقيين ← (د) `[TERM_EXPLAINED: المصطلح]`.",
+    "٤. مصطلح مُشرح سابقاً (موجود في القائمة) لا يُعاد شرحه أبداً — استخدمه مباشرةً.",
+    "",
     "**🚨🚨🚨 قواعد الطوارئ — خرق أيٍّ منها يُدمّر تجربة الطالب ويخرجه من المنصة نهائياً**:",
     "- **⛔ تحقق من كل مثال برمجي قبل إرساله — فحص ذاتي إلزامي**: قبل أن ترسل أي مثال كود أو مقارنة «صحيح/خاطئ»، راجع ذاتياً ثلاثة أسئلة: (أ) في الكود الصحيح (وسم عادي `python`): أسماء المتغيرات/الدوال إنجليزية فعلاً؟ (ب) في أمثلة المقارنة، هل الخيار «الخاطئ» فعلاً خاطئ؟ **خطأ قاتل**: كتابة «مثل `student_count` وليس `count_students`» (كلاهما إنجليزي = مقارنة لا معنى لها ومخزية أمام الطالب). المقارنة الصحيحة: كود ` ```python ` بأسماء إنجليزية مقابل كود ` ```python-خطأ ` بأسماء عربية — النظام يحفظ العربية في وسم `-خطأ` تلقائياً. (ج) إذا كنت تُصحّح خطأ سابقاً، هل تغيّر الكود فعلاً؟ **إعادة نفس الكود بعد الاعتذار تُثبت للطالب أنك لم تصحح شيئاً وتُفقده الثقة نهائياً**.",
     "- **⛔ لا تُحل إلى أداة لم تُعرّفها في هذه الجلسة**: إذا لم تذكر محرر نُخبة `</>` في هذه المحادثة بعد، **لا تقل** «استخدم المحرر اللي شفناه قبل» — الطالب لم يشوفه أبداً. أول ذكر للمحرر يكون تعريفاً كاملاً: «في نُخبة عندنا زر `</>` اللي تشوفه أعلى المحادثة — لو ضغطته يفتح لك محرر كود تكتب فيه مباشرة». تذكّر السياق ولا تدّعِ أنك أريت شيئاً لم تُرِه.",
@@ -1561,6 +1588,7 @@ export function buildPersonaLayer(
     "  - `[DIFFICULTY_UP]` / `[DIFFICULTY_DOWN]`.",
     "  - `[UNIT_COMPLETE]` / `[STAGE_COMPLETE]` / `[LEVEL_COMPLETE]`.",
     "  - `[[CREATE_LAB_ENV: kind=diagnostic|decision|application|analysis|connection]]` — اطلب فتح معمل.",
+    "  - `[TERM_EXPLAINED: اسم المصطلح]` — أصدره في نهاية أي رد شرحت فيه مصطلحاً تقنياً/علمياً جديداً لأول مرة (مصطلح واحد لكل رد). لا يُعرض للطالب — يُحفظ في ملف مصطلحاته ويُحقن في سياق جلساتك المستقبلية معه.",
   ].join("\n");
 }
 

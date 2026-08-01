@@ -34,7 +34,7 @@ import { getAccessForUser, FREE_LESSON_GEM_LIMIT } from "../lib/access";
 import { requireSameOriginCsrf } from "../lib/csrf";
 import { sendFcmToTokens } from "../lib/fcm";
 import { sendExpoToAdmins, sendExpoToStudent } from "./expo_push_tokens";
-import { sendVapidToAdmins } from "./push_notifications";
+import { sendVapidToAdmins, sendVapidToStudent } from "./push_notifications";
 import {
   computeGemsForPrice,
   computePricingBreakdown,
@@ -1419,6 +1419,39 @@ router.post("/admin/subscription-requests/:id/approve", requireSameOriginCsrf, a
     );
 
     res.json(card);
+
+    // ── إشعار فوري للطالب عند قبول الاشتراك (best-effort — لا يؤثر على الاستجابة) ──
+    {
+      const PLAN_LABELS: Record<string, string> = {
+        bronze: "البرونزية", silver: "الفضية", gold: "الذهبية",
+      };
+      const sName    = subscription.subjectName ?? requestSubjectId;
+      const pLabel   = PLAN_LABELS[request.planType ?? ""] ?? request.planType ?? "القياسية";
+      const gems     = v4Result.breakdown?.gemsGranted ?? v4Result.balanceAfter ?? 0;
+      const expDate  = expiresAt.toLocaleDateString("ar-YE", { year: "numeric", month: "long", day: "numeric" });
+      const nTitle   = "🎉 تمت الموافقة على اشتراكك";
+      const nBody    = `تم تفعيل الباقة ${pLabel} لتخصص "${sName}" — تنتهي في ${expDate}.`;
+      const nData    = JSON.stringify({
+        url:         "/learn",
+        type:        "subscription_approved",
+        subjectId:   requestSubjectId,
+        subjectName: sName,
+        planType:    request.planType,
+        planLabel:   pLabel,
+        gemsGranted: gems,
+        expiresAt:   expiresAt.toISOString(),
+      });
+      sendExpoToStudent(request.userId, nTitle, nBody, "/learn").catch(() => {});
+      sendVapidToStudent(request.userId, nTitle, nBody, "/learn").catch(() => {});
+      db.execute(sql`
+        INSERT INTO notifications (user_id, type, title, body, data)
+        VALUES (
+          ${request.userId}, 'subscription_approved', ${nTitle}, ${nBody},
+          ${nData}::jsonb
+        )
+      `).catch(() => {});
+    }
+
   } catch (e: any) {
     if (e?.message === "DISCOUNT_EXHAUSTED") {
       res.status(409).json({ error: "كود الخصم نَفِد قبل اعتماد هذا الطلب — أعِد المراجعة بعد إزالة الكود أو رفع الحد الأقصى" });
@@ -1479,11 +1512,36 @@ router.post("/admin/subscription-requests/:id/reject", requireSameOriginCsrf, as
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(rawId, 10);
 
-  await db.update(subscriptionRequestsTable).set({
-    status: "rejected",
-  }).where(eq(subscriptionRequestsTable.id, id));
+  const [rejected] = await db
+    .update(subscriptionRequestsTable)
+    .set({ status: "rejected" })
+    .where(eq(subscriptionRequestsTable.id, id))
+    .returning();
 
   res.json({ success: true });
+
+  // ── إشعار للطالب عند الرفض (best-effort) ───────────────────────────────────
+  if (rejected) {
+    const PLAN_LABELS: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
+    const sName    = rejected.subjectName ?? rejected.subjectId ?? "";
+    const pLabel   = PLAN_LABELS[rejected.planType ?? ""] ?? rejected.planType ?? "";
+    const nTitle   = "❌ طلب اشتراكك لم يُقبل";
+    const nBody    = `طلب باقة ${pLabel} في "${sName}" لم يُقبل من قِبل المشرف.`;
+    const nData    = JSON.stringify({
+      url:         "/support",
+      urlLabel:    "تواصل مع الدعم",
+      type:        "subscription_rejected",
+      subjectName: sName,
+      planLabel:   pLabel,
+      planType:    rejected.planType,
+    });
+    sendExpoToStudent(rejected.userId, nTitle, nBody, "/support").catch(() => {});
+    sendVapidToStudent(rejected.userId, nTitle, nBody, "/support").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (${rejected.userId}, 'subscription_rejected', ${nTitle}, ${nBody}, ${nData}::jsonb)
+    `).catch(() => {});
+  }
 });
 
 // ── Admin: mark incomplete ─────────────────────────────────────────────────────
@@ -1509,12 +1567,37 @@ router.post("/admin/subscription-requests/:id/incomplete", requireSameOriginCsrf
     return;
   }
 
-  await db.update(subscriptionRequestsTable).set({
-    status: "incomplete",
-    adminNote: parsed.data.adminNote,
-  }).where(eq(subscriptionRequestsTable.id, id));
+  const [markedIncomplete] = await db
+    .update(subscriptionRequestsTable)
+    .set({ status: "incomplete", adminNote: parsed.data.adminNote })
+    .where(eq(subscriptionRequestsTable.id, id))
+    .returning();
 
   res.json({ success: true });
+
+  // ── إشعار للطالب بأن طلبه يحتاج تعديل (best-effort) ──────────────────────
+  if (markedIncomplete) {
+    const PLAN_LABELS2: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
+    const sName   = markedIncomplete.subjectName ?? markedIncomplete.subjectId ?? "";
+    const pLabel  = PLAN_LABELS2[markedIncomplete.planType ?? ""] ?? markedIncomplete.planType ?? "";
+    const adminNote = parsed.data.adminNote ?? null;
+    const nTitle  = "⚠️ طلب اشتراكك يحتاج متابعة";
+    const nBody   = `طلب باقة ${pLabel} في "${sName}" يحتاج تعديل${adminNote ? ` — ${adminNote}` : ""}.`;
+    const nData   = JSON.stringify({
+      url:         "/support",
+      urlLabel:    "تواصل مع الدعم",
+      type:        "subscription_incomplete",
+      subjectName: sName,
+      planLabel:   pLabel,
+      adminNote,
+    });
+    sendExpoToStudent(markedIncomplete.userId, nTitle, nBody, "/support").catch(() => {});
+    sendVapidToStudent(markedIncomplete.userId, nTitle, nBody, "/support").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (${markedIncomplete.userId}, 'subscription_incomplete', ${nTitle}, ${nBody}, ${nData}::jsonb)
+    `).catch(() => {});
+  }
 });
 
 // ── Admin: list all activation cards ──────────────────────────────────────────
@@ -1913,6 +1996,17 @@ router.post("/admin/users/:id/cancel-subscription", requireSameOriginCsrf, async
     .returning({ id: userSubjectSubscriptionsTable.id });
 
   res.json({ success: true, subjectSubscriptionsRevoked: removed.length });
+
+  // ── إشعار للطالب عند إلغاء الاشتراك الكامل (best-effort) ──────────────────
+  const nTitle = "🚫 تم إلغاء اشتراكك";
+  const nBody  = "تم إلغاء اشتراكك على المنصة من قِبل المشرف. تواصل مع الدعم لمزيد من التفاصيل.";
+  const nData  = JSON.stringify({ url: "/subscription", type: "subscription_cancelled" });
+  sendExpoToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+  sendVapidToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+  db.execute(sql`
+    INSERT INTO notifications (user_id, type, title, body, data)
+    VALUES (${targetId}, 'subscription_cancelled', ${nTitle}, ${nBody}, ${nData}::jsonb)
+  `).catch(() => {});
 });
 
 // ── Admin: cancel user's subject-specific subscription ────────────────────────
@@ -1946,6 +2040,25 @@ router.delete("/admin/users/:userId/subject-subscriptions/:subId", requireSameOr
       note: "Admin revoked subscription",
       metadata: { plan: sub.plan, region: sub.region, expiresAt: sub.expiresAt },
     });
+
+    // ── إشعار للطالب عند إلغاء اشتراك تخصص بعينه (best-effort) ───────────────
+    const PLAN_LABELS: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
+    const sName  = sub.subjectName ?? sub.subjectId ?? "";
+    const pLabel = PLAN_LABELS[sub.plan ?? ""] ?? sub.plan ?? "";
+    const nTitle = "🚫 تم إلغاء اشتراكك";
+    const nBody  = `تم إلغاء باقة ${pLabel} في "${sName}" من قِبل المشرف. تواصل مع الدعم لمزيد من التفاصيل.`;
+    const nData  = JSON.stringify({
+      url:         "/subscription",
+      type:        "subscription_cancelled",
+      subjectName: sName,
+      planLabel:   pLabel,
+    });
+    sendExpoToStudent(sub.userId, nTitle, nBody, "/subscription").catch(() => {});
+    sendVapidToStudent(sub.userId, nTitle, nBody, "/subscription").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (${sub.userId}, 'subscription_cancelled', ${nTitle}, ${nBody}, ${nData}::jsonb)
+    `).catch(() => {});
   }
   res.json({ success: true });
 });
@@ -2549,9 +2662,16 @@ router.put("/admin/v4/gem-rate", requireSameOriginCsrf, async (req, res): Promis
   const admin = await getUser(adminId);
   if (admin?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
 
-  const gemsPer1M = Number(req.body?.gemsPer1M);
-  if (!Number.isFinite(gemsPer1M) || gemsPer1M <= 0) {
+  const rawGemsPer1M = Number(req.body?.gemsPer1M);
+  if (!Number.isFinite(rawGemsPer1M) || rawGemsPer1M <= 0) {
     res.status(400).json({ error: "قيمة غير صالحة — يجب أن يكون عدداً موجباً" });
+    return;
+  }
+  // The knob is a whole-gem count — persist an integer so the stored setting,
+  // the UI display, and the live cache can never drift by a fraction.
+  const gemsPer1M = Math.round(rawGemsPer1M);
+  if (gemsPer1M < 1) {
+    res.status(400).json({ error: "قيمة غير صالحة — الحد الأدنى ١" });
     return;
   }
   // Guard against fat-finger extremes that would make every turn cost 0 or
@@ -3176,6 +3296,23 @@ router.post("/admin/users/:id/grant-gems", requireSameOriginCsrf, async (req, re
     gemsGranted: sub.gemsBalance,
     expiresAt: sub.expiresAt,
   });
+
+  // ── إشعار للطالب عند المنح المباشر من المشرف (best-effort) ─────────────────
+  {
+    const sName  = sub.subjectName ?? subjectId;
+    const pLabel = planType ?? "قياسية";
+    const nTitle = "🎉 تم تفعيل اشتراكك";
+    const nBody  = `فعّل المشرف باقة ${pLabel} لمادة "${sName}". ابدأ تعلمك الآن!`;
+    sendExpoToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+    sendVapidToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (
+        ${targetId}, 'subscription_approved', ${nTitle}, ${nBody},
+        ${JSON.stringify({ subjectId: sub.subjectId, subjectName: sName, planType })}::jsonb
+      )
+    `).catch(() => {});
+  }
 });
 
 // ── Admin: reset user password ──────────────────────────────────────────────

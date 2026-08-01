@@ -1093,6 +1093,23 @@ const REQUIRED_TABLES: FullTableSpec[] = [
     ],
   },
   {
+    // Per-concept drill pool cached per (version, lesson, conceptIndex).
+    table: "v4_concept_drills",
+    createSql: `
+      CREATE TABLE IF NOT EXISTS "v4_concept_drills" (
+        "id" serial PRIMARY KEY,
+        "version_id" integer NOT NULL,
+        "lesson_id" integer NOT NULL,
+        "concept_index" integer NOT NULL,
+        "questions" jsonb NOT NULL,
+        "created_at" timestamp with time zone NOT NULL DEFAULT NOW()
+      )
+    `,
+    indexes: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_v4_concept_drills_version_lesson_concept" ON "v4_concept_drills" ("version_id", "lesson_id", "concept_index")`,
+    ],
+  },
+  {
     // v4 task #6 — per-(user, lesson, concept) weakness counter,
     // incremented by the NEEDS_REVIEW protocol tag and surfaced in
     // Layer 4 of the teaching prompt.
@@ -1406,6 +1423,13 @@ async function loadGemsRateIntoFormula(): Promise<void> {
 }
 
 const REQUIRED_COLUMNS: TableSpec[] = [
+  {
+    table: "notifications",
+    columns: [
+      { name: "expires_at",          ddl: "timestamptz" },
+      { name: "notification_log_id", ddl: "integer" },
+    ],
+  },
   {
     // Legacy `quiz_attempts` tables predate the current schema and are missing
     // several columns added when the quiz-attempt system was extended for the

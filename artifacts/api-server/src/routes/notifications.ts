@@ -14,9 +14,10 @@ router.get("/notifications", requireUser, async (req: any, res: any) => {
   try {
     const userId = req.session.userId as number;
     const notifs = await db.execute(
-      sql`SELECT id, type, title, body, data, read, created_at
+      sql`SELECT id, type, title, body, data, read, created_at, expires_at
           FROM notifications
           WHERE user_id = ${userId}
+            AND (expires_at IS NULL OR expires_at > NOW())
           ORDER BY created_at DESC
           LIMIT 50`
     );

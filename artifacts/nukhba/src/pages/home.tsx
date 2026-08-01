@@ -269,33 +269,7 @@ export default function Home() {
 
           <div className="relative z-10 container mx-auto px-4 text-center max-w-5xl">
 
-            {/* Badge */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6 }}
-              className="inline-flex items-center gap-2 mb-8 px-4 py-2 rounded-full text-sm font-bold"
-              style={{
-                background: "rgba(245,158,11,0.1)",
-                border: "1px solid rgba(245,158,11,0.3)",
-                boxShadow: "0 0 20px rgba(245,158,11,0.15), 0 0 40px rgba(245,158,11,0.07)",
-                color: "#F59E0B",
-              }}
-            >
-              <motion.span
-                animate={{ rotate: [0, 15, -15, 0] }}
-                transition={{ duration: 2, repeat: Infinity, repeatDelay: 2 }}
-              >
-                ✨
-              </motion.span>
-              {tr.home.badge}
-              <motion.span
-                animate={{ rotate: [0, -15, 15, 0] }}
-                transition={{ duration: 2, repeat: Infinity, repeatDelay: 2, delay: 0.3 }}
-              >
-                🇾🇪
-              </motion.span>
-            </motion.div>
+
 
             {/* Title */}
             <motion.h1
@@ -692,39 +666,6 @@ export default function Home() {
             >
               <h2 className="text-3xl md:text-5xl font-black mb-4">{tr.home.pricingTitle}</h2>
               <p className="text-muted-foreground text-lg">{tr.home.pricingDesc}</p>
-            </motion.div>
-
-            {/* Bronze note */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.3 }}
-              className="mt-8 max-w-2xl mx-auto"
-            >
-              <div className="relative rounded-2xl overflow-hidden p-5 flex flex-col sm:flex-row items-center gap-4"
-                style={{
-                  background: "rgba(180,83,9,0.08)",
-                  border: "1px solid rgba(180,83,9,0.35)",
-                }}
-              >
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ background: "rgba(180,83,9,0.2)", border: "1px solid rgba(180,83,9,0.4)" }}
-                >
-                  <Shield className="w-6 h-6 text-amber-600" />
-                </div>
-                <div className="flex-1 text-center sm:text-right">
-                  <p className="text-sm font-bold text-amber-400 mb-0.5">{tr.home.bronzeTitle}</p>
-                  <p className="text-xs text-muted-foreground">{tr.home.bronzeDesc}</p>
-                </div>
-                <Link href="/subscription" className="shrink-0">
-                  <Button size="sm" className="rounded-xl text-white font-bold px-5"
-                    style={{ background: "rgba(180,83,9,0.8)", border: "1px solid rgba(180,83,9,0.5)" }}
-                  >
-                    {tr.home.planSubscribeCta}
-                  </Button>
-                </Link>
-              </div>
             </motion.div>
           </div>
         </section>

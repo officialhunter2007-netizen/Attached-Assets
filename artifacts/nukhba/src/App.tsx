@@ -18,6 +18,7 @@ import Lesson from "@/pages/lesson";
 import Subscription from "@/pages/subscription";
 import Usage from "@/pages/usage";
 import { WelcomeOfferModal } from "@/components/welcome-offer-modal";
+import { InAppNotifications } from "@/components/in-app-notifications";
 import { WelcomeGiftModal } from "@/components/welcome-gift-modal";
 import Admin from "@/pages/admin";
 import Support from "@/pages/support";
@@ -35,11 +36,13 @@ import BookletLab from "@/pages/booklet-lab";
 import BookletExam from "@/pages/booklet-exam";
 import CodingRooms from "@/pages/coding-rooms";
 import CodingRoom from "@/pages/coding-room";
-import Dashboard from "@/pages/dashboard";
 import { ReferralGemsModal } from "@/components/referral-gems-modal";
 import TypingEn from "@/pages/typing-en";
 import TypingLesson from "@/pages/typing-lesson";
 import Certificates from "@/pages/certificates";
+import TypingChoice from "@/pages/typing";
+import TypingAr from "@/pages/typing-ar";
+import TypingLessonAr from "@/pages/typing-lesson-ar";
 
 const queryClient = new QueryClient();
 
@@ -234,9 +237,11 @@ function Router() {
       <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
       <Route path="/coding-rooms" component={() => <ProtectedRoute component={CodingRooms} />} />
       <Route path="/coding-room/:roomId" component={() => <ProtectedRoute component={CodingRoom} />} />
-      <Route path="/dashboard" component={() => <ProtectedRoute component={Dashboard} />} />
-      <Route path="/typing" component={() => <ProtectedRoute component={TypingEn} />} />
+      <Route path="/typing" component={() => <ProtectedRoute component={TypingChoice} />} />
+      <Route path="/typing-en" component={() => <ProtectedRoute component={TypingEn} />} />
+      <Route path="/typing-ar" component={() => <ProtectedRoute component={TypingAr} />} />
       <Route path="/typing/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
+      <Route path="/typing-ar/lesson/:id" component={() => <ProtectedRoute component={TypingLessonAr} />} />
       <Route path="/certificates" component={() => <ProtectedRoute component={Certificates} />} />
       <Route component={NotFound} />
     </Switch>
@@ -292,7 +297,7 @@ function PushSetup() {
         if (!subscription) {
           subscription = await reg.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(publicKey),
+            applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
           });
         }
 
@@ -340,6 +345,7 @@ function App() {
               <WelcomeGiftModal />
               <ReferralGemsModal />
               <PushSetup />
+              <InAppNotifications />
             </WouterRouter>
             <Toaster />
           </TooltipProvider>

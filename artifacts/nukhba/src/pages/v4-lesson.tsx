@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, createElement } from
 import { motion, AnimatePresence } from "framer-motion";
 import { useRoute, useLocation } from "wouter";
 import { createRoot, type Root } from "react-dom/client";
-import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, ClipboardList, Minus, Play, Eye } from "lucide-react";
+import { Loader2, ChevronRight, Send, Sparkles, ArrowLeft, Trophy, Gem, History, Plus, Code2, X, ImagePlus, ClipboardList, Minus, Play, Eye, BookOpen, Lightbulb, RotateCcw, AlertTriangle, ArrowRight } from "lucide-react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { enhanceTeacherDom, ensureMarkdownBlockGaps, extractMathBlocks, restoreMathPlaceholders, sanitizeStrayMarkdown } from "@/lib/teacher-render";
@@ -327,8 +327,10 @@ function stripLineComments(code: string, lang: string): string {
       }
       i++;
     }
-    const trimmed = result.trimEnd();
-    if (trimmed) out.push(trimmed);
+    // Always push — blank lines are semantically meaningful in code (they
+    // separate logical sections). trimEnd() only strips trailing spaces from
+    // non-empty lines. Leading/trailing blank lines are cleaned below.
+    out.push(result.trimEnd());
   }
 
   while (out.length > 0 && !out[0].trim()) out.shift();
@@ -367,6 +369,36 @@ function stripFenceComments(src: string): string {
  * the opening fence to start a new line, and re-close it — guaranteeing
  * marked sees a clean ```lang\n…\n``` every time. Inline single-backtick code
  * is untouched. */
+/**
+ * Repairs GFM tables the model emitted with blank lines between rows.
+ * marked requires ALL pipe-rows (header, separator, body) to be strictly
+ * contiguous — a single blank line causes the header to render as a <p>
+ * and the rest to become a bodyless table.
+ *
+ * Rule: whenever a pipe-row (first non-space char is |) is followed by one
+ * or more blank lines and then another pipe-row, collapse those blank lines.
+ * Blank lines between a pipe-row and any non-pipe content are left alone so
+ * surrounding paragraphs and other blocks are not disturbed.
+ */
+function normalizeMarkdownTables(src: string): string {
+  if (!src.includes("|")) return src;
+  const lines = src.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    if (/^\s*\|/.test(lines[i])) {
+      // Peek ahead — skip blank lines and check whether the next non-blank
+      // line is also a pipe-row.  If so, drop the blank lines between them.
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "") j++;
+      if (j > i + 1 && j < lines.length && /^\s*\|/.test(lines[j])) {
+        i = j - 1; // skip blanks; the loop will increment to j
+      }
+    }
+  }
+  return out.join("\n");
+}
+
 function normalizeFences(src: string): string {
   if (!src || src.indexOf("```") === -1) return src;
   const parts = src.split("```");
@@ -445,7 +477,12 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   // (`pr` `int` → `print`) before marked turns them into two separate badges.
   const merged = mergeSplitCodeTokens(stripped);
 
-  const html = marked.parse(ensureMarkdownBlockGaps(merged ?? ""), { async: false }) as string;
+  // Repair GFM tables broken by blank lines between header/separator/body rows.
+  // marked requires ALL rows to be contiguous — a single blank line makes it
+  // render the header row as a paragraph instead of <thead>.
+  const withTables = normalizeMarkdownTables(merged ?? "");
+
+  const html = marked.parse(ensureMarkdownBlockGaps(withTables), { async: false }) as string;
   // Sanitize FIRST so DOMPurify never sees KaTeX's complex span tree,
   // then restore math — placeholders are plain ASCII and survive sanitization.
   const sanitized = DOMPurify.sanitize(html, {
@@ -677,6 +714,8 @@ export default function V4Lesson() {
   const userId = user ? String(user.id) : null;
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const messagesRef = useRef<ChatMsg[]>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   // Live FLUX image state, keyed by the id in `[[IMAGE:id]]` markers. The
   // backend streams `imagePlaceholder` (spinner) then `imageReady` (same-origin
   // URL); TeacherBubble swaps the real <img> in once a marker's status is ready.
@@ -705,7 +744,190 @@ export default function V4Lesson() {
     html: string | null;
     loading: boolean;
     error: string | null;
+    mode?: 'admin';
   } | null>(null);
+  const [visualExplainReady, setVisualExplainReady] = useState(false);
+  // Pending confirmation before triggering visual explain (shows 50-gem cost warning)
+  const [veConfirmMsg, setVeConfirmMsg] = useState<string | null>(null);
+
+  // ── شرح سطر بسطر (line-by-line code explanation drawer) ──────────────────
+  type ExplainLine = { n: number; code: string; explanation: string };
+  const [explainDrawer, setExplainDrawer] = useState<{
+    loading: boolean;
+    error: string | null;
+    lines: ExplainLine[];
+    idx: number;
+    lang: string;
+  } | null>(null);
+  const explainActiveRowRef = useRef<HTMLDivElement>(null);
+
+  // Listen for clicks on "📖 شرح" buttons inside code blocks (dispatched by teacher-render.ts)
+  useEffect(() => {
+    const handler = async (ev: Event) => {
+      const { code, lang } = (ev as CustomEvent<{ code: string; lang: string }>).detail;
+      if (!code?.trim()) return;
+      setExplainDrawer({ loading: true, error: null, lines: [], idx: 0, lang: lang || "" });
+      try {
+        const res = await fetch("/api/ai/explain-code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ code, language: lang }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !Array.isArray(data.lines) || data.lines.length === 0) {
+          setExplainDrawer(prev => prev ? { ...prev, loading: false, error: data?.error || "تعذّر توليد الشرح — حاول مرة أخرى" } : null);
+          return;
+        }
+        setExplainDrawer(prev => prev ? { ...prev, loading: false, lines: data.lines, idx: 0 } : null);
+      } catch {
+        setExplainDrawer(prev => prev ? { ...prev, loading: false, error: "تعذّر الاتصال بالخادم — تحقّق من الإنترنت" } : null);
+      }
+    };
+    window.addEventListener("nukhba:explain-code", handler);
+    return () => window.removeEventListener("nukhba:explain-code", handler);
+  }, []);
+
+  // Scroll active line into view when idx changes
+  useEffect(() => {
+    if (!explainDrawer || explainDrawer.lines.length === 0) return;
+    explainActiveRowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [explainDrawer?.idx]);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/public/visual-explain/any-ready", { credentials: "include" });
+        if (!cancelled && r.ok) { const d = await r.json(); setVisualExplainReady(!!d.anyReady); }
+      } catch { /* ignore */ }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // Pending visual-explain request (background polling — survives overlay close)
+  // SessionStorage key — persists the requestId across page navigation.
+  const PENDING_VE_SS_KEY = "nkhba_pending_ve_id";
+
+  const [pendingVERequest, setPendingVERequest] = useState<{ requestId: string; html?: string } | null>(null);
+
+  // ── Restore from sessionStorage on mount ──────────────────────────────────
+  // Handles the case: student navigated away after pressing X, admin completed
+  // later — when student opens any lesson page we pick up where we left off.
+  useEffect(() => {
+    const storedId = sessionStorage.getItem(PENDING_VE_SS_KEY);
+    if (!storedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/student/visual-explain/result/${storedId}`, { credentials: "include" });
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        if (cancelled) return;
+        if (d.status === "done") {
+          // Admin already finished — show toast immediately, no need to poll
+          setPendingVERequest({ requestId: storedId, html: d.html });
+        } else if (d.status === "expired" || d.status === "error") {
+          // Dead request — clear storage
+          sessionStorage.removeItem(PENDING_VE_SS_KEY);
+        } else {
+          // Still pending — resume background polling
+          setPendingVERequest({ requestId: storedId });
+        }
+      } catch { /* ignore — polling loop will retry */ }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Sync requestId to sessionStorage whenever it changes ──────────────────
+  useEffect(() => {
+    if (pendingVERequest?.requestId && !pendingVERequest.html) {
+      sessionStorage.setItem(PENDING_VE_SS_KEY, pendingVERequest.requestId);
+    } else {
+      // Null (dismissed/done) or html already received — clear storage
+      sessionStorage.removeItem(PENDING_VE_SS_KEY);
+    }
+  }, [pendingVERequest?.requestId, pendingVERequest?.html]);
+
+  useEffect(() => {
+    if (!pendingVERequest?.requestId || pendingVERequest.html) return;
+    let cancelled = false;
+    const { requestId } = pendingVERequest;
+    const POLL_MS = 5_000;
+    const DEADLINE = Date.now() + 15 * 60_000;
+    (async () => {
+      while (!cancelled && Date.now() < DEADLINE) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        if (cancelled) break;
+        try {
+          const r = await fetch(`/api/student/visual-explain/result/${requestId}`, { credentials: "include" });
+          if (!r.ok) continue;
+          const d = await r.json();
+          if (d.status === "done") {
+            if (!cancelled) {
+              setPendingVERequest({ requestId, html: d.html });
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: d.html, loading: false, error: null, mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+          if (d.status === "expired") {
+            if (!cancelled) {
+              setPendingVERequest(null);
+              // Re-check supervisor availability immediately so the button re-enables
+              // without waiting for the 30-second polling interval.
+              fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+                .catch(() => {});
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: null, loading: false, error: "لا يوجد مشرف متاح الآن — حاول مرة أخرى لاحقاً.", mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+          if (d.status === "error") {
+            if (!cancelled) {
+              setPendingVERequest(null);
+              // Re-check supervisor availability immediately so the button re-enables.
+              fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+                .then(r => r.ok ? r.json() : null)
+                .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+                .catch(() => {});
+              setVisualOverlay(prev =>
+                prev?.mode === "admin" && prev.loading
+                  ? { html: null, loading: false, error: d.error || "تعذّر إنشاء الشرح البصري.", mode: "admin" }
+                  : prev
+              );
+            }
+            return;
+          }
+        } catch { /* keep polling */ }
+      }
+      if (!cancelled) {
+        setPendingVERequest(null);
+        // Re-check supervisor availability immediately so the button re-enables.
+        fetch("/api/public/visual-explain/any-ready", { credentials: "include" })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => { if (data) setVisualExplainReady(!!data.anyReady); })
+          .catch(() => {});
+        setVisualOverlay(prev =>
+          prev?.mode === "admin" && prev.loading
+            ? { html: null, loading: false, error: "انتهت مهلة الانتظار (15 دقيقة) — حاول مرة أخرى", mode: "admin" }
+            : prev
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingVERequest?.requestId]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -720,7 +942,7 @@ export default function V4Lesson() {
   // mismatch makes it describe a button the student can't see.
   const isProgramming = useMemo(
     () =>
-      /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b)/i.test(
+      /(python|بايثون|web|ويب|program|برمج|cod|js|javascript|java|cyber|سايبر|أمن|امن|شبك|network|software|تطوير|تقني|\bit\b|erp|data|mobile|cloud|flutter|appdev|sql|linux|bash|power|windows|security|nmap|wireshark|\bai\b|\bos\b|\bc\b|\bcpp\b)/i.test(
         slug,
       ),
     [slug],
@@ -763,44 +985,40 @@ export default function V4Lesson() {
   }, []);
 
   // ── Visual Explain ────────────────────────────────────────────────────────
+  // Submits the request to the admin queue. Polling runs in the background
+  // useEffect above (survives overlay close) and auto-shows a toast when ready.
   const handleVisualExplain = useCallback(async (messageContent: string) => {
-    setVisualOverlay({ html: null, loading: true, error: null });
-    const POLL_MS  = 5_000;
-    const DEADLINE = Date.now() + 10 * 60_000; // 10 min max
+    setVisualOverlay({ html: null, loading: true, error: null, mode: 'admin' });
     try {
-      // Step 1: Start the Manus job (returns immediately with a jobId)
-      const startRes = await fetch("/api/v4/visual-explain/start", {
+      // آخر 5 رسائل قبل الرسالة المستهدفة (سياق للمشرف) — قراءة من ref لتجنب الـ stale closure
+      const allMsgs = messagesRef.current;
+      const targetIdx = allMsgs.findIndex(m => m.content === messageContent);
+      const sliceEnd = targetIdx >= 0 ? targetIdx : allMsgs.length;
+      const contextMsgs = [
+        ...allMsgs.slice(Math.max(0, sliceEnd - 5), sliceEnd).map(m => ({
+          role: m.role,
+          content: m.content ?? "",
+        })),
+        { role: "assistant" as const, content: messageContent, isTarget: true },
+      ];
+
+      const startRes = await fetch("/api/student/visual-explain/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ message: messageContent }),
+        body: JSON.stringify({ messageText: messageContent, context: contextMsgs, specialtySlug: slug }),
       });
       if (!startRes.ok) {
         const d = await startRes.json().catch(() => ({}));
         throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
       }
-      const { jobId } = await startRes.json();
-
-      // Step 2: Poll for status every 4 seconds
-      while (Date.now() < DEADLINE) {
-        await new Promise(r => setTimeout(r, POLL_MS));
-        const statusRes = await fetch(`/api/v4/visual-explain/status/${jobId}`, {
-          credentials: "include",
-        });
-        if (!statusRes.ok) {
-          const d = await statusRes.json().catch(() => ({}));
-          throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
-        }
-        const data = await statusRes.json();
-        if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null }); return; }
-        if (data.status === "error") { throw new Error(data.error || "تعذّر إنشاء الشرح البصري."); }
-        // "pending" → keep polling
-      }
-      throw new Error("انتهت مهلة الانتظار (5 دقائق) — حاول مرة أخرى");
+      const { requestId } = await startRes.json();
+      setPendingVERequest({ requestId }); // background useEffect takes over polling
     } catch (err) {
       setVisualOverlay({
         html: null, loading: false,
         error: err instanceof Error ? err.message : "تعذّر إنشاء الشرح البصري.",
+        mode: 'admin',
       });
     }
   }, []);
@@ -1633,9 +1851,10 @@ export default function V4Lesson() {
                 }
                 onVisualExplain={
                   m.role === "assistant" && !streaming && m.content.trim() && !m.content.trim().startsWith("⚠️")
-                    ? () => handleVisualExplain(m.content)
+                    ? () => setVeConfirmMsg(m.content)
                     : undefined
                 }
+                visualExplainEnabled={visualExplainReady}
               />
             );
           })}
@@ -1900,6 +2119,65 @@ export default function V4Lesson() {
       )}
     </div>
 
+      {/* ── Visual Explain Cost Confirmation ──────────────────────────────── */}
+      {veConfirmMsg && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+          onClick={() => setVeConfirmMsg(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-5 flex flex-col gap-4"
+            style={{ background: "#0e1323", border: "1px solid rgba(251,191,36,0.25)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Icon + title */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0">
+                <Eye className="w-5 h-5 text-black" />
+              </div>
+              <div>
+                <p className="font-black text-white text-sm" style={{ direction: "rtl" }}>التوضيح البصري التفاعلي</p>
+                <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.5)", direction: "rtl" }}>شرح بصري متحرك للمفهوم</p>
+              </div>
+            </div>
+
+            {/* Cost notice */}
+            <div
+              className="rounded-xl px-4 py-3 flex items-center gap-2.5"
+              style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)" }}
+            >
+              <Gem className="w-4 h-4 text-amber-400 shrink-0" />
+              <p className="text-sm font-bold text-amber-200" style={{ direction: "rtl" }}>
+                تكلفة هذه الميزة <span className="text-amber-400">50 جوهرة</span> لكل طلب
+              </p>
+            </div>
+
+            <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.55)", direction: "rtl" }}>
+              سيقوم المشرف بإنشاء شرح بصري تفاعلي للمفهوم. ستُخصم الجواهر فور إرسال الطلب.
+            </p>
+
+            {/* Actions */}
+            <div className="flex gap-2 mt-1" style={{ direction: "rtl" }}>
+              <button
+                className="flex-1 py-2.5 rounded-xl font-black text-sm text-black"
+                style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}
+                onClick={() => { const msg = veConfirmMsg; setVeConfirmMsg(null); handleVisualExplain(msg); }}
+              >
+                تأكيد وإرسال
+              </button>
+              <button
+                className="px-4 py-2.5 rounded-xl font-bold text-sm"
+                style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.6)" }}
+                onClick={() => setVeConfirmMsg(null)}
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Visual Explain Overlay ─────────────────────────────────────────── */}
       {visualOverlay && (
         <div
@@ -1947,9 +2225,13 @@ export default function V4Lesson() {
                       <Sparkles className="w-6 h-6 text-amber-400 animate-pulse" />
                     </div>
                   </div>
-                  <p className="text-white font-semibold text-base">جارٍ إنشاء الشرح البصري…</p>
+                  <p className="text-white font-semibold text-base">
+                    {visualOverlay?.mode === 'admin' ? "في انتظار المشرف..." : "جارٍ إنشاء الشرح البصري…"}
+                  </p>
                   <p className="text-white/45 text-xs text-center max-w-xs leading-relaxed">
-                    يُنشئ الذكاء الاصطناعي الآن صفحة تفاعلية لشرح هذا المفهوم بصرياً. قد يستغرق ذلك دقيقة أو دقيقتين.
+                    {visualOverlay?.mode === 'admin'
+                      ? "تم إرسال طلبك إلى المشرف. سيتم عرض الشرح فور الانتهاء منه."
+                      : "يُنشئ الذكاء الاصطناعي الآن صفحة تفاعلية لشرح هذا المفهوم بصرياً. قد يستغرق ذلك دقيقة أو دقيقتين."}
                   </p>
                 </div>
               )}
@@ -1981,6 +2263,226 @@ export default function V4Lesson() {
           </div>
         </div>
       )}
+      {/* ── Line-by-line Code Explanation Drawer ──────────────────────────── */}
+      <AnimatePresence>
+        {explainDrawer && (
+          <motion.div
+            className="fixed inset-0 z-[9998] flex items-end sm:items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            dir="rtl"
+          >
+            <motion.div
+              className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+              onClick={() => setExplainDrawer(null)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+            <motion.div
+              className="relative w-full sm:w-[92%] sm:max-w-2xl bg-[#0d1017] border-t-2 sm:border-2 border-violet-500/30 rounded-t-3xl sm:rounded-3xl shadow-2xl shadow-violet-900/20 overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh]"
+              initial={{ y: "100%", opacity: 0.6, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ type: "spring", damping: 32, stiffness: 320 }}
+            >
+              {/* drag handle (mobile) */}
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+                <div className="w-10 h-1.5 rounded-full bg-white/15" />
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center gap-3 px-4 sm:px-6 pt-3 sm:pt-5 pb-3 border-b border-white/5 shrink-0">
+                <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-violet-500/25 to-indigo-500/25 border border-violet-400/30 shrink-0">
+                  <BookOpen className="w-5 h-5 text-violet-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 text-white font-extrabold text-base sm:text-lg">
+                    شرح سطر بسطر
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div className="text-[11px] sm:text-xs text-[#8b88a3]">نفهم الكود كلمة كلمة، رمز رمز ✨</div>
+                </div>
+                <button
+                  onClick={() => setExplainDrawer(null)}
+                  className="flex items-center justify-center w-9 h-9 rounded-xl text-[#8b88a3] hover:text-white hover:bg-white/5 transition-colors shrink-0"
+                  aria-label="إغلاق"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              {explainDrawer.loading ? (
+                <div className="flex flex-col items-center justify-center gap-4 py-16 px-6">
+                  <div className="relative w-12 h-12">
+                    <div className="w-12 h-12 rounded-full border-2 border-violet-500/20 border-t-violet-400 animate-spin" />
+                    <Lightbulb className="w-5 h-5 text-amber-400 absolute inset-0 m-auto" />
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-sm">جاري تحضير الشرح المبسّط...</div>
+                    <div className="text-[11px] text-[#8b88a3] mt-1">نفكّك الكود لك سطراً سطراً 🧩</div>
+                  </div>
+                </div>
+              ) : explainDrawer.error ? (
+                <div className="flex flex-col items-center justify-center gap-4 py-14 px-6 text-center">
+                  <div className="w-12 h-12 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center">
+                    <AlertTriangle className="w-6 h-6 text-red-400" />
+                  </div>
+                  <div className="text-white/90 text-sm font-medium max-w-xs">{explainDrawer.error}</div>
+                  <button
+                    onClick={() => {
+                      // Re-trigger — dispatch same event with stored lang (no code available here, will be re-dispatched by button)
+                      setExplainDrawer(null);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold transition-colors"
+                  >
+                    <RotateCcw className="w-4 h-4" /> إغلاق والمحاولة مجدداً
+                  </button>
+                </div>
+              ) : explainDrawer.lines.length > 0 ? (
+                <>
+                  {/* Progress bar */}
+                  <div className="px-4 sm:px-6 pt-3 shrink-0">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] sm:text-xs font-bold text-amber-400">
+                        السطر {explainDrawer.idx + 1} من {explainDrawer.lines.length}
+                      </span>
+                      <span className="text-[11px] sm:text-xs text-[#8b88a3] font-mono" dir="ltr">
+                        {Math.round(((explainDrawer.idx + 1) / explainDrawer.lines.length) * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <motion.div
+                        className="h-full rounded-full bg-gradient-to-l from-violet-400 to-amber-400"
+                        initial={false}
+                        animate={{ width: `${((explainDrawer.idx + 1) / explainDrawer.lines.length) * 100}%` }}
+                        transition={{ type: "spring", damping: 30, stiffness: 300 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Code mini-viewer */}
+                  <div className="px-4 sm:px-6 pt-3 shrink-0">
+                    <div className="rounded-xl bg-[#070910] border border-white/5 overflow-hidden">
+                      <div className="max-h-[26vh] overflow-y-auto py-1.5" dir="ltr">
+                        {explainDrawer.lines.map((l, i) => {
+                          const active = i === explainDrawer.idx;
+                          return (
+                            <div
+                              key={l.n}
+                              ref={active ? explainActiveRowRef : undefined}
+                              onClick={() => setExplainDrawer(prev => prev ? { ...prev, idx: i } : null)}
+                              className={`flex items-stretch gap-2 px-2 py-0.5 cursor-pointer transition-colors ${active ? "bg-amber-400/10" : "hover:bg-white/[0.03]"}`}
+                            >
+                              <span className={`shrink-0 w-7 text-right pr-1 select-none font-mono text-[11px] leading-6 ${active ? "text-amber-400 font-bold" : "text-[#4b5563]"}`}>{l.n}</span>
+                              <span className={`shrink-0 w-4 flex items-center justify-center ${active ? "text-amber-400" : "text-transparent"}`}>
+                                {active && (
+                                  <motion.span layoutId="explain-drawer-arrow" initial={{ x: 4, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </motion.span>
+                                )}
+                              </span>
+                              <code className={`flex-1 font-mono text-[12px] sm:text-[13px] leading-6 whitespace-pre overflow-x-auto ${active ? "text-white" : "text-[#7d8597]"}`}>{l.code || " "}</code>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Explanation card */}
+                  <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3" dir="rtl">
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={explainDrawer.idx}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.18 }}
+                        className="rounded-2xl bg-gradient-to-br from-[#13172a] to-[#0f1220] border border-violet-500/15 p-4 sm:p-5 text-sm text-white/85 whitespace-pre-line leading-relaxed"
+                        style={{ fontFamily: "'Tajawal', 'Cairo', system-ui, sans-serif" }}
+                      >
+                        {explainDrawer.lines[explainDrawer.idx]?.explanation}
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Navigation */}
+                  <div className="px-4 sm:px-6 pb-4 sm:pb-5 pt-2 shrink-0 flex items-center gap-3 border-t border-white/5">
+                    <button
+                      onClick={() => setExplainDrawer(prev => prev ? { ...prev, idx: Math.max(0, prev.idx - 1) } : null)}
+                      disabled={explainDrawer.idx === 0}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-white text-sm font-bold"
+                    >
+                      <ChevronRight className="w-4 h-4" /> السابق
+                    </button>
+                    <span className="text-[#8b88a3] text-xs font-mono tabular-nums">
+                      {explainDrawer.idx + 1}/{explainDrawer.lines.length}
+                    </span>
+                    <button
+                      onClick={() => setExplainDrawer(prev => prev ? { ...prev, idx: Math.min(prev.lines.length - 1, prev.idx + 1) } : null)}
+                      disabled={explainDrawer.idx === explainDrawer.lines.length - 1}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-white text-sm font-bold"
+                    >
+                      التالي <ChevronRight className="w-4 h-4 rotate-180" />
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Visual Explain Ready Toast ─────────────────────────────────────── */}
+      {pendingVERequest?.html && !visualOverlay && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] animate-in slide-in-from-bottom-4 duration-300"
+          style={{ direction: "rtl" }}
+        >
+          {/* Outer glow ring — pulses to grab attention */}
+          <div
+            className="absolute inset-0 rounded-2xl animate-ping opacity-30 pointer-events-none"
+            style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", animationDuration: "1.8s" }}
+          />
+          <div
+            className="relative flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl cursor-pointer"
+            style={{
+              background: "linear-gradient(135deg,#f59e0b,#c97206)",
+              minWidth: "270px",
+              boxShadow: "0 0 22px rgba(245,158,11,0.5), 0 8px 24px rgba(0,0,0,0.45)",
+            }}
+            onClick={() => {
+              setVisualOverlay({ html: pendingVERequest.html!, loading: false, error: null, mode: "admin" });
+              setPendingVERequest(null);
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => {
+              if (e.key === "Enter" || e.key === " ") {
+                setVisualOverlay({ html: pendingVERequest.html!, loading: false, error: null, mode: "admin" });
+                setPendingVERequest(null);
+              }
+            }}
+          >
+            <Sparkles className="w-5 h-5 text-black/80 shrink-0 animate-pulse" />
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-black text-sm leading-tight">الشرح البصري جاهز! ✨</p>
+              <p className="text-black/65 text-xs mt-0.5">اضغط لمشاهدة الشرح التفاعلي</p>
+            </div>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); setPendingVERequest(null); }}
+              className="w-6 h-6 flex items-center justify-center rounded-full bg-black/15 hover:bg-black/30 transition-colors shrink-0"
+              aria-label="إغلاق الإشعار"
+            >
+              <X className="w-3.5 h-3.5 text-black/80" />
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1993,6 +2495,7 @@ const MessageBubble = ({
   slug,
   onAnswerOption,
   onVisualExplain,
+  visualExplainEnabled,
 }: {
   msg: ChatMsg;
   isStreaming: boolean;
@@ -2001,6 +2504,7 @@ const MessageBubble = ({
   slug?: string;
   onAnswerOption?: (answer: string) => void;
   onVisualExplain?: () => void;
+  visualExplainEnabled?: boolean;
 }) => {
   // Normalise Arabic text (stuck words, missing spaces) on assistant messages.
   const normalizedContent = useMemo(() => {
@@ -2075,7 +2579,7 @@ const MessageBubble = ({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 px-5 py-4 shadow-md">
+      <div className="max-w-[92%] min-w-0 rounded-3xl rounded-br-none bg-[#1f2937] border border-gray-700/50 px-5 py-4 shadow-md">
         {html ? (
           <TeacherBubble html={html} isStreaming={isStreaming} imageMap={imageMap} lessonName={lessonName} slug={slug} />
         ) : isStreaming ? (
@@ -2095,11 +2599,14 @@ const MessageBubble = ({
           <div className="mt-3 pt-3 border-t border-white/5 flex">
             <button
               type="button"
-              onClick={onVisualExplain}
-              className="flex items-center gap-1.5 text-[12px] text-amber-400/75 hover:text-amber-300 transition-colors"
+              onClick={visualExplainEnabled ? onVisualExplain : undefined}
+              disabled={!visualExplainEnabled}
+              title={visualExplainEnabled ? "شرح بصري" : "لا يوجد مشرف متاح حالياً"}
+              className={`msg-toolbar-btn${visualExplainEnabled ? " msg-toolbar-btn-ve-active" : ""}`}
+              style={!visualExplainEnabled ? { color: "rgb(255 255 255 / 0.28)", cursor: "not-allowed" } : undefined}
             >
               <Eye className="w-3.5 h-3.5" />
-              <span>شرح بصري</span>
+              <span style={{ fontSize: "11px", fontWeight: 700 }}>توضيح بصري</span>
             </button>
           </div>
         )}

@@ -462,7 +462,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const loginUrl = "/api/auth/google";
 
   const navItems = [
-    { href: "/dashboard", label: tr.nav.dashboard },
     { href: "/learn", label: tr.nav.learn },
     { href: "/subscription", label: tr.nav.subscription },
     ...(user?.role === "admin" ? [{ href: "/admin", label: tr.nav.admin }] : []),
@@ -686,7 +685,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      {user && !location.startsWith("/subject") && <PlatformChatWidget />}
+      {user && !location.startsWith("/subject") && !location.startsWith("/coding-room") && location !== "/support" && <PlatformChatWidget />}
 
       {/* ── FOOTER ── */}
       <footer className="border-t border-white/6 py-8 mt-auto"

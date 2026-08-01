@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   BookOpen, Plus, Trash2, Loader2, ArrowUp, ArrowDown,
-  Eye, EyeOff, Search, Code2, ExternalLink, FileText, Copy, Check,
+  Eye, EyeOff, Search, Code2, ExternalLink, FileText, Copy, Check, Pencil, X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { university, skills } from "@/lib/curriculum";
@@ -117,6 +117,15 @@ export function AdminStories() {
   // Copy HTML
   const [copyingId, setCopyingId] = useState<number | null>(null);
   const [copiedId, setCopiedId]   = useState<number | null>(null);
+
+  // Edit story
+  const [editingId,       setEditingId]       = useState<number | null>(null);
+  const [editLoading,     setEditLoading]     = useState(false);
+  const [editTitle,       setEditTitle]       = useState("");
+  const [editHtml,        setEditHtml]        = useState("");
+  const [editSortOrder,   setEditSortOrder]   = useState(0);
+  const [editSaving,      setEditSaving]      = useState(false);
+  const [editShowPreview, setEditShowPreview] = useState(false);
 
   // ── Load units when specialty changes ─────────────────────────────────────
   useEffect(() => {
@@ -262,6 +271,56 @@ export function AdminStories() {
       toast({ title: "خطأ في النسخ", variant: "destructive" });
     } finally {
       setCopyingId(null);
+    }
+  }
+
+  // ── Open edit form for a story ────────────────────────────────────────────
+  async function handleEditStart(story: Story) {
+    if (editLoading) return;
+    setEditLoading(true);
+    setPreviewHtml(null);
+    setEditShowPreview(false);
+    try {
+      const r = await fetch(`/api/v4/stories/${story.id}`, { credentials: "include" });
+      const data = await r.json();
+      setEditTitle(data.title ?? story.title);
+      setEditHtml(data.html_content ?? "");
+      setEditSortOrder(story.sortOrder);
+      setEditingId(story.id);
+    } catch {
+      toast({ title: "خطأ في تحميل القصة", variant: "destructive" });
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
+  // ── Save edited story ──────────────────────────────────────────────────────
+  async function handleEditSave() {
+    if (!editingId || !selectedUnit) return;
+    if (!editTitle.trim()) { toast({ title: "العنوان مطلوب", variant: "destructive" }); return; }
+    if (!editHtml.trim())  { toast({ title: "محتوى HTML مطلوب", variant: "destructive" }); return; }
+
+    setEditSaving(true);
+    try {
+      const r = await fetch(`/api/admin/v4/stories/${editingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...CSRF },
+        credentials: "include",
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          htmlContent: editHtml,
+          sortOrder: editSortOrder,
+        }),
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
+      toast({ title: "✓ تم حفظ التعديلات" });
+      setEditingId(null);
+      setEditShowPreview(false);
+      await loadStories(selectedUnit);
+    } catch (err: any) {
+      toast({ title: "خطأ في الحفظ", description: err.message, variant: "destructive" });
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -561,6 +620,25 @@ export function AdminStories() {
                           : <Copy className="w-3.5 h-3.5" />}
                     </button>
                     <button
+                      onClick={() => {
+                        if (editingId === s.id) { setEditingId(null); setEditShowPreview(false); }
+                        else handleEditStart(s);
+                      }}
+                      disabled={editLoading}
+                      className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                        editingId === s.id
+                          ? "text-amber-400 bg-amber-500/15 hover:bg-amber-500/25"
+                          : "text-amber-400/60 hover:text-amber-400 hover:bg-amber-500/10"
+                      }`}
+                      title={editingId === s.id ? "إغلاق التعديل" : "تعديل"}
+                    >
+                      {editLoading && editingId === null
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : editingId === s.id
+                          ? <X className="w-3.5 h-3.5" />
+                          : <Pencil className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
                       onClick={() => openPreview(s.id)}
                       disabled={previewLoading === s.id}
                       className="p-1.5 rounded-lg text-sky-400/60 hover:text-sky-400 hover:bg-sky-500/10 transition-colors disabled:opacity-40"
@@ -583,6 +661,107 @@ export function AdminStories() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Edit panel */}
+          {editingId !== null && (
+            <div className="border border-amber-500/30 rounded-2xl overflow-hidden mt-2">
+              <div className="bg-amber-500/8 px-4 py-2.5 border-b border-amber-500/15 flex items-center gap-2">
+                <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                <p className="text-xs text-amber-300 font-medium">
+                  تعديل: {stories.find((s) => s.id === editingId)?.title}
+                </p>
+                <button
+                  onClick={() => { setEditingId(null); setEditShowPreview(false); }}
+                  className="mr-auto text-white/30 hover:text-white/60 text-xs transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Title */}
+                <div className="space-y-1.5">
+                  <Label className="text-white/60 text-xs">عنوان القصة</Label>
+                  <input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-amber-500/40"
+                  />
+                </div>
+
+                {/* Sort order */}
+                <div className="space-y-1.5">
+                  <Label className="text-white/60 text-xs">ترتيب العرض</Label>
+                  <input
+                    type="number"
+                    value={editSortOrder}
+                    onChange={(e) => setEditSortOrder(Number(e.target.value))}
+                    className="w-32 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-amber-500/40"
+                  />
+                </div>
+
+                {/* HTML */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-white/60 text-xs flex items-center gap-1.5">
+                      <Code2 className="w-3.5 h-3.5" /> كود HTML
+                    </Label>
+                    <button
+                      onClick={() => setEditShowPreview((v) => !v)}
+                      disabled={!editHtml.trim()}
+                      className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 disabled:opacity-30 transition-colors"
+                    >
+                      {editShowPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      {editShowPreview ? "إخفاء المعاينة" : "معاينة مباشرة"}
+                    </button>
+                  </div>
+                  <textarea
+                    value={editHtml}
+                    onChange={(e) => setEditHtml(e.target.value)}
+                    rows={12}
+                    dir="ltr"
+                    className="w-full bg-[#000d1a] border border-white/10 rounded-xl px-4 py-3 font-mono text-xs text-sky-200 placeholder:text-white/20 focus:outline-none focus:border-amber-500/40 resize-y"
+                    style={{ minHeight: "220px" }}
+                  />
+                  <p className="text-[10px] text-white/25 font-mono">
+                    {editHtml.length > 0 ? `${(editHtml.length / 1024).toFixed(1)} KB` : ""}
+                  </p>
+                </div>
+
+                {/* Live preview */}
+                {editShowPreview && editHtml.trim() && (
+                  <div className="border border-sky-500/20 rounded-xl overflow-hidden">
+                    <div className="bg-sky-500/8 px-4 py-2 border-b border-sky-500/15 flex items-center gap-2">
+                      <Eye className="w-3.5 h-3.5 text-sky-400" />
+                      <p className="text-xs text-sky-400">معاينة مباشرة</p>
+                    </div>
+                    <StoryPreview html={editHtml} />
+                  </div>
+                )}
+
+                {/* Buttons */}
+                <div className="flex gap-2 justify-end pt-1">
+                  <Button
+                    variant="ghost"
+                    onClick={() => { setEditingId(null); setEditShowPreview(false); }}
+                    className="text-white/50 hover:text-white"
+                  >
+                    إلغاء
+                  </Button>
+                  <Button
+                    onClick={handleEditSave}
+                    disabled={editSaving}
+                    className="bg-amber-600 hover:bg-amber-500 text-white gap-1.5"
+                  >
+                    {editSaving
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Check className="w-3.5 h-3.5" />}
+                    حفظ التعديلات
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
 

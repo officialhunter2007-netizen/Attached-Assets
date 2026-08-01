@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "python-3.11", "postgresql-16"]
+modules = ["nodejs-20", "python-3.11", "bash", "web"]
 
 [[artifacts]]
 id = "artifacts/api-server"
@@ -64,9 +64,41 @@ UNLIMITED_ACCESS_EMAILS = "socanalyst38@gmail.com"
 LOG_LEVEL = "info"
 NODE_ENV = "development"
 VAPID_EMAIL = "mailto:admin@learnukhba.com"
-VAPID_PUBLIC_KEY = "BEPf-lfSIks27AR_JeltXow6wXdTPD8-I8XWXEP2mPsevnthbRAcA_wLZ3SGmZfE0tmiHQrSc_lK4osvRBrpPtQ"
+VAPID_PUBLIC_KEY = "BN70q8k1iw_8BRVC_Y-YqTIzcawT7C-TfQnPwC4pMWpf9ZwQ-FCQ5cE6p9OgcEQVrlSZWyEgstWA_oyv8RSiCk4"
 ANDROID_ADMIN_CERT_FINGERPRINT = "9B:97:46:13:91:F8:6E:4D:8B:91:93:29:FC:5A:46:9F:13:BD:E8:37:79:08:6F:1B:D0:C7:03:BF:37:90:C0:6B"
 ANDROID_STUDENT_CERT_FINGERPRINT = "DD:05:E6:2C:EB:1F:04:C6:04:CB:2D:55:70:EF:19:F8:23:D3:80:84:95:B0:51:C8:3E:6B:21:37:74:11:99:1B"
 
 [userenv.production]
 APP_DOMAIN = "learnukhba.replit.app"
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
+
+[[ports]]
+localPort = 5001
+externalPort = 3003
+
+[[ports]]
+localPort = 5002
+externalPort = 3000
+
+[[ports]]
+localPort = 5003
+externalPort = 3001
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 8082
+externalPort = 3002
+
+[[ports]]
+localPort = 23564
+externalPort = 80

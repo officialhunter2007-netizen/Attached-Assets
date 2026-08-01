@@ -190,6 +190,30 @@ async function runLessonContentPrewarm(): Promise<void> {
   }
 }
 
+/**
+ * Sweep visual_explain_requests that are still `pending` (unclaimed) after
+ * 5 minutes and mark them `expired`.  Students polling their request will see
+ * the new status and can show a "no supervisor available" message immediately
+ * instead of waiting the full 15-minute client-side deadline.
+ */
+async function sweepExpiredVisualExplainRequests(): Promise<void> {
+  try {
+    const { sql: rawSql } = await import("drizzle-orm");
+    const result = await db.execute(rawSql`
+      UPDATE visual_explain_requests
+      SET status = 'expired'
+      WHERE status = 'pending'
+        AND created_at < NOW() - INTERVAL '5 minutes'
+    `);
+    const count = (result as any).rowCount ?? 0;
+    if (count > 0) {
+      logger.info({ count }, "scheduled-jobs: expired unclaimed visual-explain requests");
+    }
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "scheduled-jobs: visual-explain expiry sweep failed");
+  }
+}
+
 export function startScheduledJobs(): void {
   if (started) return;
   started = true;
@@ -220,4 +244,19 @@ export function startScheduledJobs(): void {
     void reapOrphanedProcessingBooklets(BOOKLET_ORPHAN_FLOOR_MIN);
   }, FIVE_MIN_MS);
   orphanTick.unref?.();
+
+  // Visual-explain expiry sweep — marks unclaimed `pending` requests as
+  // `expired` once they are older than 5 minutes.  Runs every minute so a
+  // student's polling loop sees the new status within ~1 minute of the
+  // expiry threshold, well before the 15-minute client-side timeout fires.
+  const ONE_MIN_MS = 60_000;
+  const veTick = setInterval(() => {
+    void sweepExpiredVisualExplainRequests();
+  }, ONE_MIN_MS);
+  veTick.unref?.();
+  // Also run once shortly after boot so requests orphaned during a restart
+  // are expired without waiting a full minute.
+  const veBoot = setTimeout(() => { void sweepExpiredVisualExplainRequests(); }, 10_000);
+  veBoot.unref?.();
+  logger.info("scheduled-jobs: visual-explain expiry sweep registered (every 1 min)");
 }

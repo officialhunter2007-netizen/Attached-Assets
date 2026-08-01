@@ -51,24 +51,24 @@ function extractHtml(rawText: string): string | null {
 
   // 1. ```html … ``` fenced block (with "html" specifier)
   const fencedHtml = /```html\s*([\s\S]*?)```/i.exec(text);
-  if (fencedHtml?.[1]?.trim().length > MIN) return fencedHtml[1].trim();
+  if ((fencedHtml?.[1]?.trim().length ?? 0) > MIN) return fencedHtml![1].trim();
 
   // 2. Generic ``` … ``` fenced block (model may omit the "html" tag)
   const fencedAny = /```(?:\w*\s*)?\n?(<!DOCTYPE[\s\S]*?<\/html>)/i.exec(text);
-  if (fencedAny?.[1]?.trim().length > MIN) return fencedAny[1].trim();
+  if ((fencedAny?.[1]?.trim().length ?? 0) > MIN) return fencedAny![1].trim();
 
   // 3. Bare <!DOCTYPE html … </html>
   const bare = /<!DOCTYPE\s+html[\s\S]*?<\/html>/i.exec(text);
-  if (bare?.[0]?.length > MIN) return bare[0].trim();
+  if ((bare?.[0]?.length ?? 0) > MIN) return bare![0].trim();
 
   // 4. <html … </html> without doctype
   const tag = /<html[\s\S]*?<\/html>/i.exec(text);
-  if (tag?.[0]?.length > MIN) return tag[0].trim();
+  if ((tag?.[0]?.length ?? 0) > MIN) return tag![0].trim();
 
   // 5. Truncated — model hit token limit before </html>; recover everything
   //    from <!DOCTYPE (or <html) to end-of-text, as long as it's substantial.
   const partial = /(!DOCTYPE\s+html|<html\b)[\s\S]+/i.exec(text);
-  if (partial?.[0]?.length > MIN) return "<" + partial[0].trim();
+  if ((partial?.[0]?.length ?? 0) > MIN) return "<" + partial![0].trim();
 
   return null;
 }

@@ -265,7 +265,7 @@ function HistoryCard({ room, onReopen }: { room: HistoryRoom; onReopen: (id: num
 function CreateRoomModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [inviteType, setInviteType] = useState<"private" | "public">("private");
+  const inviteType = "public";
   const [langInput, setLangInput] = useState("");
   const [languages, setLanguages] = useState<string[]>(["javascript"]);
   const [loading, setLoading] = useState(false);
@@ -393,29 +393,6 @@ function CreateRoomModal({ onClose, onCreated }: { onClose: () => void; onCreate
             </div>
           </div>
 
-          <div>
-            <label className="text-xs text-white/50 mb-2 block">نوع الدعوة</label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { value: "private", label: "خاصة", icon: "🔒", desc: "بالدعوة فقط" },
-                { value: "public", label: "عامة", icon: "🌐", desc: "مفتوحة للجميع" },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setInviteType(opt.value as any)}
-                  className="p-3 rounded-xl text-right transition-all"
-                  style={{
-                    background: inviteType === opt.value ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${inviteType === opt.value ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.07)"}`,
-                  }}
-                >
-                  <div className="text-base mb-0.5">{opt.icon}</div>
-                  <div className="text-xs font-bold text-white/80">{opt.label}</div>
-                  <div className="text-[10px] text-white/35">{opt.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
 
           {error && (
             <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>
