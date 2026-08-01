@@ -18,6 +18,7 @@ import Lesson from "@/pages/lesson";
 import Subscription from "@/pages/subscription";
 import Usage from "@/pages/usage";
 import { WelcomeOfferModal } from "@/components/welcome-offer-modal";
+import { InAppNotifications } from "@/components/in-app-notifications";
 import { WelcomeGiftModal } from "@/components/welcome-gift-modal";
 import Admin from "@/pages/admin";
 import Support from "@/pages/support";
@@ -340,6 +341,7 @@ function App() {
               <WelcomeGiftModal />
               <ReferralGemsModal />
               <PushSetup />
+              <InAppNotifications />
             </WouterRouter>
             <Toaster />
           </TooltipProvider>

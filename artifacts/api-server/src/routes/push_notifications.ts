@@ -280,6 +280,48 @@ router.post("/admin/notifications/send", async (req: any, res: any): Promise<any
       VALUES (${userId}, ${title}, ${body}, ${url}, ${JSON.stringify(filterParams)}::jsonb, ${totalSent}, ${totalFailed})
     `).catch((e: any) => console.warn("[push] log insert failed:", e?.message));
 
+    // ── In-app notifications: store in notifications table for each targeted user ──
+    try {
+      const esc = (s: string) => s.replace(/'/g, "''");
+      const safeTitle = esc(title);
+      const safeBody  = esc(body);
+      const safeData  = esc(JSON.stringify({ url, type: "admin_push" }));
+
+      let notifSql: string | null = null;
+
+      if (targetType === "all") {
+        notifSql = `
+          INSERT INTO notifications (user_id, type, title, body, data)
+          SELECT id, 'admin_push', '${safeTitle}', '${safeBody}', '${safeData}'::jsonb
+          FROM users
+        `;
+      } else if (targetType === "users") {
+        const ids = (Array.isArray(userIds) ? userIds : String(userIds).split(","))
+          .map(Number).filter((n: number) => !isNaN(n) && n > 0);
+        if (ids.length > 0) {
+          notifSql = `
+            INSERT INTO notifications (user_id, type, title, body, data)
+            SELECT unnest(ARRAY[${ids.join(",")}]::int[]), 'admin_push', '${safeTitle}', '${safeBody}', '${safeData}'::jsonb
+          `;
+        }
+      } else if (where) {
+        notifSql = `
+          INSERT INTO notifications (user_id, type, title, body, data)
+          SELECT DISTINCT user_id, 'admin_push', '${safeTitle}', '${safeBody}', '${safeData}'::jsonb
+          FROM push_subscriptions
+          WHERE ${where}
+        `;
+      }
+
+      if (notifSql) {
+        await db.execute(sql.raw(notifSql)).catch((e: any) =>
+          console.warn("[push] in-app insert failed:", e?.message)
+        );
+      }
+    } catch (inAppErr: any) {
+      console.warn("[push] in-app notifications error:", inAppErr?.message);
+    }
+
     return res.json({ ok: true, sent: totalSent, failed: totalFailed, vapidSent, expoSent });
   } catch (err: any) {
     console.error("[push] send error:", err?.message);
