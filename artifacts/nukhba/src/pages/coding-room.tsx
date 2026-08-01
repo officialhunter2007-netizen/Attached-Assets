@@ -2236,7 +2236,16 @@ export default function CodingRoom() {
                               <span>{new Date(o.timestamp).toLocaleTimeString("ar")}</span>
                               {o.language && <span className="px-1 py-px rounded text-[9px]" style={{ background: "rgba(59,130,246,0.1)", color: "#60A5FA" }}>{o.language}</span>}
                             </div>
-                            <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed pb-2 border-b" style={{ color: "rgba(255,255,255,0.82)", borderColor: "rgba(255,255,255,0.04)" }}>{o.output}</pre>
+                            <pre className="text-[12px] whitespace-pre-wrap break-all leading-relaxed pb-2" style={{ color: "rgba(255,255,255,0.82)" }}>{o.output}</pre>
+                            {o.language === "html" && (
+                              <div className="flex items-center gap-2 mt-1 mb-2 px-2.5 py-2 rounded-lg border" style={{ background: "rgba(16,185,129,0.07)", borderColor: "rgba(16,185,129,0.22)" }}>
+                                <Eye className="w-3.5 h-3.5 shrink-0" style={{ color: "#34D399" }} />
+                                <span className="text-[11.5px] font-sans leading-snug" style={{ color: "rgba(52,211,153,0.9)" }}>
+                                  اضغط زر <strong>معاينة HTML</strong> في الأعلى حتى تظهر لك الصفحة
+                                </span>
+                              </div>
+                            )}
+                            <div className="border-b" style={{ borderColor: "rgba(255,255,255,0.04)" }} />
                           </div>
                         ))}
                         {errorHint && (
