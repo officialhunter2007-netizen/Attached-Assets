@@ -66,10 +66,11 @@ export function AdminNotifications() {
   const { toast } = useToast();
 
   // Form
-  const [title,       setTitle]       = useState("");
-  const [body,        setBody]        = useState("");
-  const [url,         setUrl]         = useState("/");
-  const [targetType,  setTargetType]  = useState<TargetType>("all");
+  const [title,             setTitle]             = useState("");
+  const [body,              setBody]              = useState("");
+  const [url,               setUrl]               = useState("/");
+  const [expiresAfterHours, setExpiresAfterHours] = useState<number | null>(null);
+  const [targetType,        setTargetType]        = useState<TargetType>("all");
   const [specialtyId, setSpecialtyId] = useState("");
   const [level,       setLevel]       = useState("");
   const [unitCode,    setUnitCode]    = useState("");
@@ -95,6 +96,7 @@ export function AdminNotifications() {
   const [history,        setHistory]        = useState<NotifLog[]>([]);
   const [loadingHistory, setLoadingHistory]  = useState(false);
   const [showHistory,    setShowHistory]    = useState(false);
+  const [cancellingId,   setCancellingId]   = useState<number | null>(null);
 
   // Expo stats
   const [expoStats, setExpoStats] = useState<{ student: number; admin: number } | null>(null);
@@ -162,6 +164,7 @@ export function AdminNotifications() {
     try {
       const payload: Record<string, unknown> = {
         title: title.trim(), body: body.trim(), url: url.trim() || "/", targetType,
+        ...(expiresAfterHours != null ? { expiresAfterHours } : {}),
       };
       if (targetType === "specialty") payload.specialtyId = specialtyId;
       if (targetType === "level")     payload.level       = level;
@@ -239,9 +242,26 @@ export function AdminNotifications() {
                     <span className="text-muted-foreground mx-2">·</span>
                     <span className="text-muted-foreground text-xs">{h.body.slice(0, 55)}{h.body.length > 55 ? "…" : ""}</span>
                   </div>
-                  <div className="flex gap-1 shrink-0">
+                  <div className="flex gap-1 shrink-0 items-center">
                     <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">{h.sent_count} ✓</Badge>
                     {h.failed_count > 0 && <Badge className="bg-rose-500/20 text-rose-400 border-rose-500/30 text-[10px]">{h.failed_count} ✗</Badge>}
+                    <button
+                      disabled={cancellingId === h.id}
+                      onClick={async () => {
+                        setCancellingId(h.id);
+                        try {
+                          await fetch(`/api/admin/notifications/${h.id}/cancel`, {
+                            method: "POST", credentials: "include",
+                            headers: { "X-Nukhba-Csrf": "1", "Content-Type": "application/json" },
+                          });
+                          toast({ title: "✅ تم إلغاء الإشعار من داخل المنصة" });
+                        } catch { toast({ title: "فشل الإلغاء", variant: "destructive" }); }
+                        finally { setCancellingId(null); }
+                      }}
+                      className="text-[10px] text-rose-400/70 hover:text-rose-400 border border-rose-400/20 rounded px-1.5 py-0.5 transition-colors disabled:opacity-40"
+                    >
+                      إلغاء
+                    </button>
                   </div>
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-1">
@@ -278,6 +298,29 @@ export function AdminNotifications() {
           <Input value={url} onChange={e => setUrl(e.target.value)}
             placeholder="/learn  أو  /v4-map  أو  /"
             className="bg-white/5 border-white/10 font-mono text-sm" dir="ltr" />
+        </div>
+
+        {/* Expiry */}
+        <div className="space-y-2">
+          <Label className="text-sm font-semibold">مدة ظهور الإشعار الداخلي</Label>
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: "لا تنتهي", value: null },
+              { label: "24 ساعة", value: 24 },
+              { label: "48 ساعة", value: 48 },
+              { label: "أسبوع",   value: 168 },
+            ].map(opt => (
+              <button key={String(opt.value)} onClick={() => setExpiresAfterHours(opt.value)}
+                className={`py-2 rounded-xl text-xs font-semibold border transition-all ${
+                  expiresAfterHours === opt.value
+                    ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                    : "bg-white/5 border-white/10 text-muted-foreground hover:border-white/20"
+                }`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">بعد انتهاء المدة يختفي الإشعار تلقائياً من داخل المنصة</p>
         </div>
 
         {/* Target type */}

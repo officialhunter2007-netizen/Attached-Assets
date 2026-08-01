@@ -1424,6 +1424,13 @@ async function loadGemsRateIntoFormula(): Promise<void> {
 
 const REQUIRED_COLUMNS: TableSpec[] = [
   {
+    table: "notifications",
+    columns: [
+      { name: "expires_at",          ddl: "timestamptz" },
+      { name: "notification_log_id", ddl: "integer" },
+    ],
+  },
+  {
     // Legacy `quiz_attempts` tables predate the current schema and are missing
     // several columns added when the quiz-attempt system was extended for the
     // materials/professor feature. Backfill-safe DDLs (defaults or nullable).
