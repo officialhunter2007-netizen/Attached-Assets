@@ -59,10 +59,11 @@ function renderMarkdown(text: string): string {
 
 export function PlatformChatWidget() {
   const { user } = useAuth();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const storageKey = user ? `${STORAGE_PREFIX}${user.id}` : null;
 
-  const [open, setOpen] = useState(false);
+  const isSupport = location === "/support";
+  const [open, setOpen] = useState(isSupport);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
