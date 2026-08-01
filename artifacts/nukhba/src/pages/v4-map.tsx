@@ -125,9 +125,9 @@ type RenderItem =
   | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean }
   | { type: "podcast"; podcast: PodcastItem; xOff: number }
   | { type: "story"; story: StoryItem; xOff: number; showConnector: boolean }
-  | { type: "quiz_action"; unitCode: string; unitName: string }
-  | { type: "stage_quiz_action"; stageIndex: number; stageName: string; levelIndex: number }
-  | { type: "level_quiz_action"; levelIndex: number; levelName: string };
+  | { type: "quiz_action"; unitCode: string; unitName: string; unitTestCode: string | null }
+  | { type: "stage_quiz_action"; stageIndex: number; stageName: string; levelIndex: number; stageTestCode: string | null }
+  | { type: "level_quiz_action"; levelIndex: number; levelName: string; levelTestCode: string | null };
 
 function flattenMap(mapData: MapData): FlatNode[] {
   const nodes: FlatNode[] = [];
@@ -1129,7 +1129,14 @@ export default function V4Map() {
   // passing it (≥70%) unlocks the whole prior path up to the tapped node.
   const [testOut, setTestOut] = useState<TestOutTarget | null>(null);
   // HTML quiz viewer (unit quizzes authored by admin as self-grading HTML pages).
-  const [activeHtmlQuiz, setActiveHtmlQuiz] = useState<{ id: number; title: string; examCode: string } | null>(null);
+  const [activeHtmlQuiz, setActiveHtmlQuiz] = useState<{ id: number; title: string; examCode: string; quizType: "unit" | "stage" | "level" } | null>(null);
+  // Tracks whether a gate-pass is being recorded so we don't double-submit.
+  const [recordingGatePass, setRecordingGatePass] = useState(false);
+  // Quiz IDs loaded from the server (persistent across page reloads).
+  // unitQuizIds: unitCode → quizId; stageQuizIds: `${li}-${si}` → quizId; levelQuizIds: `${li}` → quizId
+  const [serverUnitQuizIds,  setServerUnitQuizIds]  = useState<Record<string, number>>({});
+  const [serverStageQuizIds, setServerStageQuizIds] = useState<Record<string, number>>({});
+  const [serverLevelQuizIds, setServerLevelQuizIds] = useState<Record<string, number>>({});
   // Scroll-to-active: after a precise placement the student's current node can
   // sit deep in the map (e.g. unit 3.2.1). Center it on first load so they land
   // exactly where they start instead of at the top of the curriculum.
@@ -1211,6 +1218,25 @@ export default function V4Map() {
             setStoriesByUnit(byUnit);
           })
           .catch(() => {/* stories are supplemental */});
+        // Load persisted quiz IDs from server so "افتح الاختبار" state survives page reloads.
+        fetch(`/api/v4/quiz-scores?specialty_slug=${encodeURIComponent(slug)}`, { credentials: "include" })
+          .then(r4 => r4.ok ? r4.json() : null)
+          .then((j: any) => {
+            if (!j || cancelled) return;
+            const uMap: Record<string, number> = {};
+            for (const row of (j.unitScores ?? [])) { if (row.unit_code) uMap[row.unit_code] = row.quiz_id; }
+            const sMap: Record<string, number> = {};
+            for (const row of (j.stageScores ?? [])) {
+              if (row.level_index != null && row.stage_index != null)
+                sMap[`${row.level_index}-${row.stage_index}`] = row.quiz_id;
+            }
+            const lMap: Record<string, number> = {};
+            for (const row of (j.levelScores ?? [])) { if (row.level_index != null) lMap[String(row.level_index)] = row.quiz_id; }
+            setServerUnitQuizIds(uMap);
+            setServerStageQuizIds(sMap);
+            setServerLevelQuizIds(lMap);
+          })
+          .catch(() => {/* quiz scores are supplemental */});
       } catch (e: any) {
         if (cancelled) return;
         setErr(String(e?.message ?? "unknown"));
@@ -1485,7 +1511,7 @@ export default function V4Map() {
         contentItems.sort((a, b) => a.sort - b.sort);
         for (const ci of contentItems) ci.run();
         // AI quiz button — always shown at end of each expanded unit
-        items.push({ type: "quiz_action", unitCode: unit.code, unitName: unit.name });
+        items.push({ type: "quiz_action", unitCode: unit.code, unitName: unit.name, unitTestCode: unit.unitTest?.code ?? null });
       }
       if (stage.hasStageTest && stage.stageTest) {
         pushNode({ id: stage.stageTest.code, label: "اختبار المرحلة", sublabel: stage.name, kind: "stage_test", status: stage.stageTest.status });
@@ -1497,6 +1523,7 @@ export default function V4Map() {
           stageIndex: stage.stageIndex,
           stageName: stage.name,
           levelIndex: m.viewedLevelIndex ?? m.currentLevelIndex,
+          stageTestCode: stage.stageTest?.code ?? null,
         });
       }
     }
@@ -1508,6 +1535,7 @@ export default function V4Map() {
       type: "level_quiz_action",
       levelIndex: m.viewedLevelIndex ?? m.currentLevelIndex,
       levelName: m.levelName,
+      levelTestCode: m.levelTest?.code ?? null,
     });
     return items;
   }, [data, expandedStages, expandedUnits, podcastsByUnit, storiesByUnit]);
@@ -1546,13 +1574,16 @@ export default function V4Map() {
   }
 
   // ── AI quiz generation handler ───────────────────────────────────────────────
-  async function handleUnitQuizClick(unitCode: string, unitName: string) {
+  async function handleUnitQuizClick(unitCode: string, unitName: string, unitTestCode: string | null) {
     if (quizGenLoading.has(unitCode)) return;
     setQuizGenError(null);
+    // Canonical gate code: unitTestCode if provided, otherwise derive it.
+    const examCode = unitTestCode ?? (unitCode + ".exam");
 
-    // If we generated one this session, open it directly
-    if (sessionQuizIds[unitCode]) {
-      setActiveHtmlQuiz({ id: sessionQuizIds[unitCode], title: unitName, examCode: unitCode });
+    // If we already have a quiz (session or server), open it directly
+    const existingId = sessionQuizIds[unitCode] || serverUnitQuizIds[unitCode];
+    if (existingId) {
+      setActiveHtmlQuiz({ id: existingId, title: unitName, examCode, quizType: "unit" });
       return;
     }
 
@@ -1561,7 +1592,7 @@ export default function V4Map() {
     try {
       const r = await fetch("/api/v4/unit-quizzes/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
         credentials: "include",
         body: JSON.stringify({ specialtySlug: slug, unitCode }),
       });
@@ -1569,7 +1600,8 @@ export default function V4Map() {
       if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
       const quizId: number = json.quizId;
       setSessionQuizIds((prev) => ({ ...prev, [unitCode]: quizId }));
-      setActiveHtmlQuiz({ id: quizId, title: unitName, examCode: unitCode });
+      setServerUnitQuizIds((prev) => ({ ...prev, [unitCode]: quizId }));
+      setActiveHtmlQuiz({ id: quizId, title: unitName, examCode, quizType: "unit" });
     } catch (err: any) {
       setQuizGenError(err?.message ?? "فشل توليد الاختبار، حاول مجدداً");
       setTimeout(() => setQuizGenError(null), 4000);
@@ -1583,13 +1615,16 @@ export default function V4Map() {
   }
 
   // ── Stage quiz generation handler ────────────────────────────────────────────
-  async function handleStageQuizClick(levelIndex: number, stageIndex: number, stageName: string) {
+  async function handleStageQuizClick(levelIndex: number, stageIndex: number, stageName: string, stageTestCode: string | null) {
     const key = `${levelIndex}-${stageIndex}`;
     if (stageQuizGenLoading.has(key)) return;
     setStageQuizGenError(null);
+    // Canonical gate code: stageTestCode if provided, otherwise derive from indices.
+    const examCode = stageTestCode ?? `${levelIndex}.${stageIndex}.exam`;
 
-    if (sessionStageQuizIds[key]) {
-      setActiveHtmlQuiz({ id: sessionStageQuizIds[key], title: stageName, examCode: `stage-${key}` });
+    const existingId = sessionStageQuizIds[key] || serverStageQuizIds[key];
+    if (existingId) {
+      setActiveHtmlQuiz({ id: existingId, title: stageName, examCode, quizType: "stage" });
       return;
     }
 
@@ -1597,7 +1632,7 @@ export default function V4Map() {
     try {
       const r = await fetch("/api/v4/stage-quizzes/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
         credentials: "include",
         body: JSON.stringify({ specialtySlug: slug, levelIndex, stageIndex }),
       });
@@ -1605,7 +1640,8 @@ export default function V4Map() {
       if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
       const quizId: number = json.quizId;
       setSessionStageQuizIds((prev) => ({ ...prev, [key]: quizId }));
-      setActiveHtmlQuiz({ id: quizId, title: stageName, examCode: `stage-${key}` });
+      setServerStageQuizIds((prev) => ({ ...prev, [key]: quizId }));
+      setActiveHtmlQuiz({ id: quizId, title: stageName, examCode, quizType: "stage" });
     } catch (err: any) {
       setStageQuizGenError(err?.message ?? "فشل توليد اختبار المرحلة، حاول مجدداً");
       setTimeout(() => setStageQuizGenError(null), 4000);
@@ -1619,13 +1655,16 @@ export default function V4Map() {
   }
 
   // ── Level quiz generation handler ────────────────────────────────────────────
-  async function handleLevelQuizClick(levelIndex: number, levelName: string) {
+  async function handleLevelQuizClick(levelIndex: number, levelName: string, levelTestCode: string | null) {
     const key = String(levelIndex);
     if (levelQuizGenLoading.has(key)) return;
     setLevelQuizGenError(null);
+    // Canonical gate code: levelTestCode if provided, otherwise derive.
+    const examCode = levelTestCode ?? `${levelIndex}.exam`;
 
-    if (sessionLevelQuizIds[key]) {
-      setActiveHtmlQuiz({ id: sessionLevelQuizIds[key], title: levelName, examCode: `level-${key}` });
+    const existingId = sessionLevelQuizIds[key] || serverLevelQuizIds[key];
+    if (existingId) {
+      setActiveHtmlQuiz({ id: existingId, title: levelName, examCode, quizType: "level" });
       return;
     }
 
@@ -1633,7 +1672,7 @@ export default function V4Map() {
     try {
       const r = await fetch("/api/v4/level-quizzes/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
         credentials: "include",
         body: JSON.stringify({ specialtySlug: slug, levelIndex }),
       });
@@ -1641,7 +1680,8 @@ export default function V4Map() {
       if (!r.ok) throw new Error(json?.error ?? "خطأ غير معروف");
       const quizId: number = json.quizId;
       setSessionLevelQuizIds((prev) => ({ ...prev, [key]: quizId }));
-      setActiveHtmlQuiz({ id: quizId, title: levelName, examCode: `level-${key}` });
+      setServerLevelQuizIds((prev) => ({ ...prev, [key]: quizId }));
+      setActiveHtmlQuiz({ id: quizId, title: levelName, examCode, quizType: "level" });
     } catch (err: any) {
       setLevelQuizGenError(err?.message ?? "فشل توليد اختبار المستوى، حاول مجدداً");
       setTimeout(() => setLevelQuizGenError(null), 5000);
@@ -1678,7 +1718,7 @@ export default function V4Map() {
         (node.status === "available" || node.status === "completed")) {
       if (node.quizId) {
         // HTML quiz authored by admin → open QuizViewer inline.
-        setActiveHtmlQuiz({ id: node.quizId, title: node.sublabel ?? "اختبار الوحدة", examCode: node.id });
+        setActiveHtmlQuiz({ id: node.quizId, title: node.sublabel ?? "اختبار الوحدة", examCode: node.id, quizType: "unit" });
       } else {
         // AI MCQ exam bank → navigate to full exam page.
         navigate(`/exam/${encodeURIComponent(slug)}/${encodeURIComponent(node.id)}`);
@@ -1957,13 +1997,14 @@ export default function V4Map() {
             }
             if (item.type === "quiz_action") {
               const isLoading = quizGenLoading.has(item.unitCode);
-              // Check if this unit already has a quiz from the map data OR session generation
-              const existingQuizId = sessionQuizIds[item.unitCode] ??
+              // Check if this unit already has a quiz: session, server-loaded scores, or map-authored quiz
+              const existingQuizId = sessionQuizIds[item.unitCode] ||
+                serverUnitQuizIds[item.unitCode] ||
                 data?.map.stages.flatMap(s => s.units).find(u => u.code === item.unitCode)?.unitTest?.quizId;
               return (
                 <div key={`quiz-action-${item.unitCode}`} className="flex flex-col items-center w-full mb-2">
                   <button
-                    onClick={() => handleUnitQuizClick(item.unitCode, item.unitName)}
+                    onClick={() => handleUnitQuizClick(item.unitCode, item.unitName, item.unitTestCode)}
                     disabled={isLoading}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                     style={{
@@ -1988,12 +2029,12 @@ export default function V4Map() {
             if (item.type === "stage_quiz_action") {
               const key = `${item.levelIndex}-${item.stageIndex}`;
               const isLoading = stageQuizGenLoading.has(key);
-              const existingQuizId = sessionStageQuizIds[key];
+              const existingQuizId = sessionStageQuizIds[key] || serverStageQuizIds[key];
               return (
                 <div key={`stage-quiz-action-${key}`} className="flex flex-col items-center w-full my-3">
                   <div className="w-full max-w-xs">
                     <button
-                      onClick={() => handleStageQuizClick(item.levelIndex, item.stageIndex, item.stageName)}
+                      onClick={() => handleStageQuizClick(item.levelIndex, item.stageIndex, item.stageName, item.stageTestCode)}
                       disabled={isLoading}
                       className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                       style={{
@@ -2019,13 +2060,13 @@ export default function V4Map() {
             if (item.type === "level_quiz_action") {
               const key = String(item.levelIndex);
               const isLoading = levelQuizGenLoading.has(key);
-              const existingQuizId = sessionLevelQuizIds[key];
+              const existingQuizId = sessionLevelQuizIds[key] || serverLevelQuizIds[key];
               return (
                 <div key={`level-quiz-action-${key}`} className="flex flex-col items-center w-full my-5">
                   <div className="w-full max-w-sm px-4">
                     <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent mb-4" />
                     <button
-                      onClick={() => handleLevelQuizClick(item.levelIndex, item.levelName)}
+                      onClick={() => handleLevelQuizClick(item.levelIndex, item.levelName, item.levelTestCode)}
                       disabled={isLoading}
                       className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                       style={{
@@ -2175,17 +2216,49 @@ export default function V4Map() {
         }}
       />
 
-      {/* ── HTML Quiz Viewer (unit quizzes authored by admin) ────────────── */}
+      {/* ── HTML Quiz Viewer (unit / stage / level generated quizzes) ─────── */}
       <AnimatePresence>
         {activeHtmlQuiz && (
           <QuizViewer
             quizId={activeHtmlQuiz.id}
-            quizType="unit"
+            quizType={activeHtmlQuiz.quizType}
             title={activeHtmlQuiz.title}
             onClose={() => setActiveHtmlQuiz(null)}
-            onScoreSubmitted={(score) => {
-              setData((prev) => prev ? bumpNodeStatus(prev, activeHtmlQuiz.examCode, score) : prev);
+            onScoreSubmitted={async (score) => {
+              // Capture before clearing so the async path below still has it.
+              const { examCode, quizType, id: quizId } = activeHtmlQuiz;
+
+              // 1. Optimistic local state bump (cosmetic — survives until reload).
+              if (examCode) {
+                setData((prev) => prev ? bumpNodeStatus(prev, examCode, score) : prev);
+              }
+
+              // 2. Close the viewer immediately so the student isn't blocked.
               setActiveHtmlQuiz(null);
+
+              // 3. If the student passed (≥ 70) and we have a valid canonical
+              //    gate code, persist the pass in v4_exam_attempts so it
+              //    survives a page reload and unlocks subsequent content.
+              const isCanonicalGate = examCode && examCode.endsWith(".exam");
+              if (score >= 70 && isCanonicalGate && !recordingGatePass) {
+                setRecordingGatePass(true);
+                try {
+                  await fetch("/api/v4/quiz-scores/record-gate-pass", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-nukhba-csrf": "1" },
+                    credentials: "include",
+                    body: JSON.stringify({ specialtySlug: slug, examCode, score, quizId, quizType }),
+                  });
+                  // Reload the map so unlocked nodes, gate icons, and progress
+                  // bar all reflect the newly-persisted pass accurately.
+                  await reloadMap();
+                } catch {
+                  // Best-effort — local bumpNodeStatus above already gave
+                  // visual feedback; the student can reload manually.
+                } finally {
+                  setRecordingGatePass(false);
+                }
+              }
             }}
           />
         )}

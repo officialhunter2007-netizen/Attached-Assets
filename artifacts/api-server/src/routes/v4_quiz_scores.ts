@@ -2,6 +2,7 @@
 // v4 Quiz Scores — submit + retrieve student scores on HTML self-grading quizzes
 //
 //   POST /api/v4/quiz-scores                   — submit score (auth)
+//   POST /api/v4/quiz-scores/record-gate-pass  — record HTML quiz pass → v4_exam_attempts (auth)
 //   GET  /api/v4/quiz-scores                   — my scores for a specialty (auth)
 //   GET  /api/v4/admin/quiz-scores             — admin: all scores (admin)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -10,6 +11,12 @@ import { db, usersTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import {
+  computeUnlocksForPassedExam,
+  applyUnlockedSnapshot,
+  resolveExamAnchor,
+  EXAM_PASS_THRESHOLD,
+} from "../lib/v4-lab-exam-engine";
 
 const router = Router();
 
@@ -45,6 +52,109 @@ const TABLE_FOR: Record<QuizType, string> = {
   level: "v4_level_quizzes",
   stage: "v4_stage_quizzes",
 };
+
+// ── POST /api/v4/quiz-scores/record-gate-pass — HTML quiz pass → v4_exam_attempts ─
+//
+// Called after a student passes (score ≥ 70) a generated HTML quiz so the
+// result is persisted in v4_exam_attempts and triggers gate unlocking, just
+// like the canonical AI exam does.
+//
+// Body: { specialtySlug, examCode, score, quizId, quizType }
+//
+// examCode must be a canonical gate code ending in ".exam"
+//   Unit:  "1.2.3.exam"  → scope=unit,  scopeRefId="1.2.3"
+//   Stage: "1.2.exam"    → scope=stage, scopeRefId="1.2"
+//   Level: "1.exam"      → scope=level, scopeRefId="1"
+//
+// Idempotent: a duplicate request_id is silently ignored.
+
+router.post("/v4/quiz-scores/record-gate-pass", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = getUserId(req)!;
+  const { specialtySlug, examCode, score, quizId, quizType } = req.body ?? {};
+
+  // ── Validate inputs ──────────────────────────────────────────────────────
+  if (!specialtySlug || typeof specialtySlug !== "string") {
+    res.status(400).json({ error: "specialtySlug مطلوب" }); return;
+  }
+  const codeStr = String(examCode ?? "");
+  if (!codeStr.endsWith(".exam")) {
+    res.status(400).json({ error: "examCode غير صالح — يجب أن ينتهي بـ .exam" }); return;
+  }
+  const scoreNum = Number(score);
+  if (!Number.isFinite(scoreNum) || scoreNum < EXAM_PASS_THRESHOLD) {
+    res.status(400).json({ error: `score يجب أن يكون ${EXAM_PASS_THRESHOLD} أو أكثر` }); return;
+  }
+  const scoreInt = Math.round(scoreNum);
+
+  try {
+    // ── Get student path (versionId + existing unlocks) ───────────────────
+    const pathResult = await db.execute(sql`
+      SELECT version_id, unlocked_lesson_codes
+      FROM v4_student_paths
+      WHERE user_id = ${userId} AND subject_id = ${specialtySlug}
+      LIMIT 1
+    `);
+    const pathRow = (pathResult as any).rows[0];
+    if (!pathRow) {
+      res.status(404).json({ error: "مسار الطالب غير موجود — يجب البدء بالتخصص أولاً" }); return;
+    }
+    const versionId: number = pathRow.version_id;
+
+    // ── Resolve exam anchor → scope + integer scopeRefId ──────────────────
+    // Uses the same engine function the canonical AI exam uses, so the
+    // scope/scopeRefId pair is always consistent with the progression engine.
+    const anchor = await resolveExamAnchor(versionId, codeStr);
+    if (!anchor) {
+      res.status(404).json({ error: "الاختبار غير موجود في هذا التخصص أو المستوى" }); return;
+    }
+
+    // ── Idempotent: skip if a passing attempt already exists ──────────────
+    const existingPass = await db.execute(sql`
+      SELECT id FROM v4_exam_attempts
+      WHERE user_id = ${userId} AND version_id = ${versionId}
+        AND exam_code = ${codeStr} AND passed = true
+      LIMIT 1
+    `);
+    if ((existingPass as any).rows.length > 0) {
+      logger.info({ userId, examCode: codeStr }, "[v4/quiz-scores/record-gate-pass] already passed");
+      res.json({ ok: true, alreadyPassed: true, newlyUnlocked: [] }); return;
+    }
+
+    // ── Record attempt (no gems deducted — HTML quiz already paid at gen time) ──
+    await db.execute(sql`
+      INSERT INTO v4_exam_attempts
+        (user_id, version_id, subject_id, scope, exam_code, scope_ref_id,
+         variant_index, answers, score, passed, gems_deducted)
+      VALUES
+        (${userId}, ${versionId}, ${specialtySlug},
+         ${anchor.scope}, ${codeStr}, ${anchor.scopeRefId},
+         0, '[]'::jsonb, ${scoreInt}, true, 0)
+    `);
+
+    // ── Recompute unlocks (identical logic to the canonical exam route) ───
+    const existingUnlocked: string[] = Array.isArray(pathRow.unlocked_lesson_codes)
+      ? (pathRow.unlocked_lesson_codes as string[])
+      : [];
+    const u = await computeUnlocksForPassedExam({ versionId, userId, existingUnlocked });
+    if (u.newlyUnlocked.length > 0) {
+      await applyUnlockedSnapshot({
+        userId,
+        subjectId: specialtySlug,
+        unlocked: u.unlocked,
+        nextLessonCode: u.nextLessonCode,
+      });
+    }
+
+    logger.info(
+      { userId, examCode: codeStr, scope: anchor.scope, score: scoreInt, newlyUnlocked: u.newlyUnlocked.length },
+      "[v4/quiz-scores/record-gate-pass] gate pass recorded",
+    );
+    res.json({ ok: true, alreadyPassed: false, newlyUnlocked: u.newlyUnlocked });
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "[v4/quiz-scores/record-gate-pass] failed");
+    res.status(500).json({ error: err?.message ?? "db error" });
+  }
+});
 
 // ── POST /api/v4/quiz-scores — submit a score ─────────────────────────────────
 //
