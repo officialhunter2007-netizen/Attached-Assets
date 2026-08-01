@@ -40,6 +40,9 @@ import { ReferralGemsModal } from "@/components/referral-gems-modal";
 import TypingEn from "@/pages/typing-en";
 import TypingLesson from "@/pages/typing-lesson";
 import Certificates from "@/pages/certificates";
+import TypingChoice from "@/pages/typing";
+import TypingAr from "@/pages/typing-ar";
+import TypingLessonAr from "@/pages/typing-lesson-ar";
 
 const queryClient = new QueryClient();
 
@@ -234,8 +237,11 @@ function Router() {
       <Route path="/support" component={() => <ProtectedRoute component={Support} />} />
       <Route path="/coding-rooms" component={() => <ProtectedRoute component={CodingRooms} />} />
       <Route path="/coding-room/:roomId" component={() => <ProtectedRoute component={CodingRoom} />} />
-      <Route path="/typing" component={() => <ProtectedRoute component={TypingEn} />} />
+      <Route path="/typing" component={() => <ProtectedRoute component={TypingChoice} />} />
+      <Route path="/typing-en" component={() => <ProtectedRoute component={TypingEn} />} />
+      <Route path="/typing-ar" component={() => <ProtectedRoute component={TypingAr} />} />
       <Route path="/typing/lesson/:id" component={() => <ProtectedRoute component={TypingLesson} />} />
+      <Route path="/typing-ar/lesson/:id" component={() => <ProtectedRoute component={TypingLessonAr} />} />
       <Route path="/certificates" component={() => <ProtectedRoute component={Certificates} />} />
       <Route component={NotFound} />
     </Switch>
