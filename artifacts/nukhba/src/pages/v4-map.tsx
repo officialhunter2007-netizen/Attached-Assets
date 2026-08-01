@@ -1520,9 +1520,6 @@ export default function V4Map() {
           unitTestStatus: unit.unitTest?.status ?? null,
         });
       }
-      if (stage.hasStageTest && stage.stageTest) {
-        pushNode({ id: stage.stageTest.code, label: "اختبار المرحلة", sublabel: stage.name, kind: "stage_test", status: stage.stageTest.status });
-      }
       // Stage quiz gate — shown at the end of every expanded stage
       if (stageExpanded) {
         items.push({
