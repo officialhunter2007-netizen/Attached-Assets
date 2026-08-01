@@ -836,8 +836,8 @@ export function buildLevelContentSummary(level: LevelContent): string {
   return s;
 }
 
-// ─── QUIZ_MODEL: DeepSeek R1 (latest) via OpenRouter ─────────────────────────
-const QUIZ_MODEL = "deepseek/deepseek-r1-0528";
+// ─── QUIZ_MODEL: DeepSeek V4 Pro via OpenRouter ───────────────────────────────
+const QUIZ_MODEL = "deepseek/deepseek-v4-pro";
 
 // ─── Structured output approach ───────────────────────────────────────────────
 //
