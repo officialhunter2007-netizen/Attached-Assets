@@ -1526,16 +1526,17 @@ router.post("/admin/subscription-requests/:id/reject", requireSameOriginCsrf, as
     const sName    = rejected.subjectName ?? rejected.subjectId ?? "";
     const pLabel   = PLAN_LABELS[rejected.planType ?? ""] ?? rejected.planType ?? "";
     const nTitle   = "❌ طلب اشتراكك لم يُقبل";
-    const nBody    = `طلب باقة ${pLabel} في "${sName}" لم يُقبل. تواصل مع الدعم أو أعد إرسال الطلب.`;
+    const nBody    = `طلب باقة ${pLabel} في "${sName}" لم يُقبل من قِبل المشرف.`;
     const nData    = JSON.stringify({
-      url:         "/subscription",
+      url:         "/support",
+      urlLabel:    "تواصل مع الدعم",
       type:        "subscription_rejected",
       subjectName: sName,
       planLabel:   pLabel,
       planType:    rejected.planType,
     });
-    sendExpoToStudent(rejected.userId, nTitle, nBody, "/subscription").catch(() => {});
-    sendVapidToStudent(rejected.userId, nTitle, nBody, "/subscription").catch(() => {});
+    sendExpoToStudent(rejected.userId, nTitle, nBody, "/support").catch(() => {});
+    sendVapidToStudent(rejected.userId, nTitle, nBody, "/support").catch(() => {});
     db.execute(sql`
       INSERT INTO notifications (user_id, type, title, body, data)
       VALUES (${rejected.userId}, 'subscription_rejected', ${nTitle}, ${nBody}, ${nData}::jsonb)
@@ -1576,18 +1577,25 @@ router.post("/admin/subscription-requests/:id/incomplete", requireSameOriginCsrf
 
   // ── إشعار للطالب بأن طلبه يحتاج تعديل (best-effort) ──────────────────────
   if (markedIncomplete) {
+    const PLAN_LABELS2: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
     const sName   = markedIncomplete.subjectName ?? markedIncomplete.subjectId ?? "";
-    const noteTxt = parsed.data.adminNote ? ` — ${parsed.data.adminNote}` : "";
-    const nTitle  = "📝 طلب اشتراكك يحتاج معلومات إضافية";
-    const nBody   = `طلب اشتراكك في "${sName}" يحتاج تعديل${noteTxt}. يرجى مراجعة الطلب وإعادة الإرسال.`;
-    sendExpoToStudent(markedIncomplete.userId, nTitle, nBody, "/subscription").catch(() => {});
-    sendVapidToStudent(markedIncomplete.userId, nTitle, nBody, "/subscription").catch(() => {});
+    const pLabel  = PLAN_LABELS2[markedIncomplete.planType ?? ""] ?? markedIncomplete.planType ?? "";
+    const adminNote = parsed.data.adminNote ?? null;
+    const nTitle  = "⚠️ طلب اشتراكك يحتاج متابعة";
+    const nBody   = `طلب باقة ${pLabel} في "${sName}" يحتاج تعديل${adminNote ? ` — ${adminNote}` : ""}.`;
+    const nData   = JSON.stringify({
+      url:         "/support",
+      urlLabel:    "تواصل مع الدعم",
+      type:        "subscription_incomplete",
+      subjectName: sName,
+      planLabel:   pLabel,
+      adminNote,
+    });
+    sendExpoToStudent(markedIncomplete.userId, nTitle, nBody, "/support").catch(() => {});
+    sendVapidToStudent(markedIncomplete.userId, nTitle, nBody, "/support").catch(() => {});
     db.execute(sql`
       INSERT INTO notifications (user_id, type, title, body, data)
-      VALUES (
-        ${markedIncomplete.userId}, 'subscription_incomplete', ${nTitle}, ${nBody},
-        ${JSON.stringify({ subjectId: markedIncomplete.subjectId, subjectName: sName, adminNote: parsed.data.adminNote })}::jsonb
-      )
+      VALUES (${markedIncomplete.userId}, 'subscription_incomplete', ${nTitle}, ${nBody}, ${nData}::jsonb)
     `).catch(() => {});
   }
 });
