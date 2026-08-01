@@ -1485,13 +1485,6 @@ export default function V4Map() {
             run: () => pushNode({ id: l.code, label: l.name, kind: "lesson", status: l.status, stars: l.stars }),
           });
         });
-        if (unit.hasUnitTest && unit.unitTest) {
-          const ut = unit.unitTest;
-          contentItems.push({
-            sort: unit.lessons.length + 1,
-            run: () => pushNode({ id: ut.code, label: "اختبار الوحدة", sublabel: unit.name, kind: "unit_test", status: ut.status, quizId: ut.quizId }),
-          });
-        }
         // Podcasts: admin places them at any fractional position
         for (const podcast of (podcastsByUnit[unit.code] ?? [])) {
           const pod = podcast;
