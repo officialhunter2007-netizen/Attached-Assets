@@ -23,6 +23,7 @@ function isExternal(url: string) {
 
 interface NotifData {
   url?: string;
+  urlLabel?: string;
   type?: string;
   subjectName?: string;
   planLabel?: string;
@@ -321,16 +322,12 @@ function GenericCard({
                   onClick={() => { openUrl(linkUrl!, navigate); onDismiss(); }}
                   className="w-full py-3 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-200 text-sm font-bold hover:bg-amber-400/25 active:scale-[.98] transition-all flex items-center justify-center gap-2"
                 >
-                  {external ? (
-                    <>
-                      <ExternalLink className="w-4 h-4" />
-                      فتح الرابط
-                    </>
+                  {notif.data?.urlLabel ? (
+                    notif.data.urlLabel
+                  ) : external ? (
+                    <><ExternalLink className="w-4 h-4" />فتح الرابط</>
                   ) : (
-                    <>
-                      <ArrowLeft className="w-4 h-4 rotate-180" />
-                      اذهب الآن
-                    </>
+                    <><ArrowLeft className="w-4 h-4 rotate-180" />اذهب الآن</>
                   )}
                 </button>
               )}

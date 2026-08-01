@@ -68,7 +68,8 @@ export function AdminNotifications() {
   // Form
   const [title,             setTitle]             = useState("");
   const [body,              setBody]              = useState("");
-  const [url,               setUrl]               = useState("/");
+  const [url,               setUrl]               = useState("");
+  const [urlLabel,          setUrlLabel]          = useState("");
   const [expiresAfterHours, setExpiresAfterHours] = useState<number | null>(null);
   const [targetType,        setTargetType]        = useState<TargetType>("all");
   const [specialtyId, setSpecialtyId] = useState("");
@@ -163,7 +164,8 @@ export function AdminNotifications() {
     setSending(true); setResult(null);
     try {
       const payload: Record<string, unknown> = {
-        title: title.trim(), body: body.trim(), url: url.trim() || "/", targetType,
+        title: title.trim(), body: body.trim(), url: url.trim() || null, targetType,
+        ...(urlLabel.trim() ? { urlLabel: urlLabel.trim() } : {}),
         ...(expiresAfterHours != null ? { expiresAfterHours } : {}),
       };
       if (targetType === "specialty") payload.specialtyId = specialtyId;
@@ -292,15 +294,26 @@ export function AdminNotifications() {
           <div className="text-[11px] text-muted-foreground text-left">{body.length}/200</div>
         </div>
 
-        {/* URL */}
-        <div className="space-y-2">
-          <Label className="text-sm font-semibold">رابط الزر (اختياري)</Label>
-          <Input value={url} onChange={e => setUrl(e.target.value)}
-            placeholder="https://example.com  أو  /learn  أو  /v4-map"
-            className="bg-white/5 border-white/10 font-mono text-sm" dir="ltr" />
-          <p className="text-[11px] text-muted-foreground">
-            يمكن إدراج رابط داخلي مثل <span className="text-white/50 font-mono">/learn</span> أو رابط خارجي مثل <span className="text-white/50 font-mono">https://…</span> — سيظهر زر للطالب ينقله إليه مباشرة.
-          </p>
+        {/* URL + Label */}
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">رابط الزر (اختياري)</Label>
+            <Input value={url} onChange={e => setUrl(e.target.value)}
+              placeholder="https://example.com  أو  /learn  أو  /v4-map"
+              className="bg-white/5 border-white/10 font-mono text-sm" dir="ltr" />
+            <p className="text-[11px] text-muted-foreground">
+              رابط داخلي مثل <span className="text-white/50 font-mono">/learn</span> أو خارجي مثل <span className="text-white/50 font-mono">https://…</span>
+            </p>
+          </div>
+          {url.trim() && (
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">نص الزر</Label>
+              <Input value={urlLabel} onChange={e => setUrlLabel(e.target.value)}
+                placeholder="مثال: احجز مقعدك الآن  أو  شاهد الفيديو"
+                className="bg-white/5 border-white/10 text-sm" maxLength={60} />
+              <div className="text-[11px] text-muted-foreground text-left">{urlLabel.length}/60</div>
+            </div>
+          )}
         </div>
 
         {/* Expiry */}

@@ -290,7 +290,8 @@ router.post("/admin/notifications/send", async (req: any, res: any): Promise<any
       const esc = (s: string) => s.replace(/'/g, "''");
       const safeTitle = esc(title);
       const safeBody  = esc(body);
-      const safeData  = esc(JSON.stringify({ url, type: "admin_push" }));
+      const urlLabel  = typeof req.body?.urlLabel === "string" ? req.body.urlLabel.trim().slice(0, 60) : null;
+      const safeData  = esc(JSON.stringify({ url, type: "admin_push", ...(urlLabel ? { urlLabel } : {}) }));
       const logIdSql  = notifLogId != null ? String(notifLogId) : "NULL";
 
       // expires_at: from expiresAfterHours (optional)
