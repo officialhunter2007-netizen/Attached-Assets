@@ -221,11 +221,22 @@ export async function extractStageContent(
  * Returns the complete HTML quiz template skeleton.
  * Grading reads per-card data-points so mixed-weight level quizzes work.
  *
+ * Supported question types: mcq | tf | fill | match | sort
+ *
+ * CORRECT object schema per type:
+ *   mcq/tf/fill : { ans: string, fb_ok: string, fb_err: string }
+ *   match       : { type:"match", ans: {a:string,b:string,...}, fb_ok:string, fb_err:string }
+ *   sort        : { type:"sort",  ans: string[],               fb_ok:string, fb_err:string }
+ *
+ * match HTML: selects use id="match-qN-a", "match-qN-b", etc. inside <div class="match-grid" id="match-qN">
+ * sort  HTML: items use data-order="1","2"… inside <div class="sort-list" id="sort-qN">
+ *
  * @param totalQuestions  10 (unit) | 20 (stage) | 30 (level)
  */
 export function buildQuizHtmlTemplate(totalQuestions: number): string {
-  const progressSuffix = `${totalQuestions} أسئلة مُجاب عنها`;
+  const progressSuffix = `${totalQuestions} سؤالاً`;
   const submitHint = `تأكد من الإجابة على جميع الأسئلة الـ ${totalQuestions} قبل الإرسال`;
+  const ptsEach = Math.floor(100 / totalQuestions);
 
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -233,104 +244,245 @@ export function buildQuizHtmlTemplate(totalQuestions: number): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>اختبار</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
 <style>
-:root{--bg:#0b0f1a;--card:#111827;--border:#1e293b;--accent:#f59e0b;--ok:#22c55e;--err:#ef4444;--text:#e2e8f0;--muted:#64748b}
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,Cairo,sans-serif;min-height:100vh;padding:16px}
-.header{max-width:660px;margin:0 auto 24px;text-align:center}
-.header-icon{font-size:2.4rem;margin-bottom:8px}
-.header-title{font-size:1.4rem;font-weight:800;color:var(--accent);margin-bottom:4px}
-.header-sub{color:var(--muted);font-size:.875rem;margin-bottom:16px}
-.progress-track{background:var(--border);border-radius:99px;height:6px;margin-bottom:6px;overflow:hidden}
-.progress-fill{height:100%;background:linear-gradient(to left,var(--accent),#f97316);border-radius:99px;transition:width .4s}
-.progress-label{font-size:.75rem;color:var(--muted)}
-.container{max-width:660px;margin:0 auto}
-.q-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px;transition:.3s}
-.q-card.correct{border-color:#22c55e30;background:#0d201a}
-.q-card.wrong{border-color:#ef444430;background:#1f0d0d}
-.q-meta{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.q-num{background:var(--accent);color:#000;font-weight:800;font-size:.7rem;padding:2px 8px;border-radius:6px}
-.q-type{color:var(--muted);font-size:.75rem}
-.q-points{margin-right:auto;color:var(--accent);font-size:.75rem;font-weight:700}
-.q-text{font-size:.95rem;line-height:1.7;margin-bottom:16px}
+:root{
+  --bg:#0d0f14;--surface:#141720;--surface2:#1c2030;
+  --border:#252a3a;--accent:#4f8ef7;--accent2:#7c5cfc;
+  --ok:#22c55e;--err:#ef4444;--yellow:#f59e0b;
+  --text:#e8eaf0;--muted:#8891aa;
+  --mono:'JetBrains Mono',monospace;--sans:'IBM Plex Sans Arabic',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;line-height:1.6}
+
+/* ── HEADER ── */
+.header{
+  background:linear-gradient(135deg,#0d0f14 0%,#141c35 60%,#0d1524 100%);
+  border-bottom:1px solid var(--border);
+  padding:32px 24px 28px;text-align:center;position:relative;overflow:hidden;
+}
+.header::before{
+  content:'';position:absolute;top:-60px;left:50%;transform:translateX(-50%);
+  width:400px;height:160px;
+  background:radial-gradient(ellipse,rgba(79,142,247,.18) 0%,transparent 70%);
+  pointer-events:none;
+}
+.header .badge{
+  display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  color:var(--accent);background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.25);
+  border-radius:4px;padding:4px 12px;margin-bottom:14px;
+}
+.header h1{
+  font-size:clamp(20px,4vw,32px);font-weight:700;letter-spacing:-.02em;margin-bottom:6px;
+  background:linear-gradient(135deg,#e8eaf0,var(--accent));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.header p{color:var(--muted);font-size:13px;max-width:480px;margin:0 auto}
+
+/* ── PROGRESS (sticky) ── */
+.progress-bar-wrap{
+  background:var(--surface);border-bottom:1px solid var(--border);
+  padding:10px 24px;display:flex;align-items:center;gap:14px;
+  position:sticky;top:0;z-index:50;
+}
+.progress-track{flex:1;height:4px;background:var(--border);border-radius:999px;overflow:hidden}
+.progress-fill{
+  height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));
+  border-radius:999px;transition:width .4s ease;width:0%;
+}
+.progress-label{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* ── CONTAINER ── */
+.container{max-width:820px;margin:0 auto;padding:28px 20px 80px}
+
+/* ── QUESTION CARD ── */
+.q-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:22px;margin-bottom:14px;transition:border-color .2s;
+  animation:fadeUp .3s ease both;
+}
+.q-card:nth-child(1){animation-delay:.04s}
+.q-card:nth-child(2){animation-delay:.08s}
+.q-card:nth-child(3){animation-delay:.12s}
+.q-card:nth-child(4){animation-delay:.16s}
+.q-card:nth-child(5){animation-delay:.20s}
+.q-card:nth-child(6){animation-delay:.24s}
+.q-card.answered{border-color:rgba(79,142,247,.3)}
+.q-card.correct{border-color:rgba(34,197,94,.4)!important;background:rgba(34,197,94,.03)}
+.q-card.wrong{border-color:rgba(239,68,68,.35)!important;background:rgba(239,68,68,.03)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+.q-meta{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.q-num{
+  font-family:var(--mono);font-size:11px;color:var(--accent2);
+  background:rgba(124,92,252,.1);border:1px solid rgba(124,92,252,.2);
+  border-radius:4px;padding:2px 8px;
+}
+.q-type{font-size:11px;color:var(--muted);background:var(--surface2);border-radius:4px;padding:2px 8px;border:1px solid var(--border)}
+.q-points{margin-right:auto;font-family:var(--mono);font-size:11px;color:var(--yellow)}
+.q-text{font-size:14px;font-weight:500;margin-bottom:16px;line-height:1.75;color:var(--text)}
+.q-text code{font-family:var(--mono);color:var(--accent);background:rgba(79,142,247,.1);padding:1px 5px;border-radius:3px}
+
+/* ── MCQ ── */
 .options{display:flex;flex-direction:column;gap:8px}
-.option{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:.2s}
-.option:hover{border-color:#f59e0b50;background:rgba(245,158,11,.05)}
-.option.selected{border-color:var(--accent);background:rgba(245,158,11,.08)}
-.option.correct-ans{border-color:var(--ok)!important;background:rgba(34,197,94,.1)!important}
+.option{
+  display:flex;align-items:flex-start;gap:12px;padding:11px 15px;
+  border-radius:8px;border:1px solid var(--border);background:var(--surface2);
+  cursor:pointer;transition:all .18s;font-size:14px;text-align:right;user-select:none;
+}
+.option:hover{border-color:var(--accent);background:rgba(79,142,247,.06)}
+.option.selected{border-color:var(--accent);background:rgba(79,142,247,.1)}
+.option.correct-ans{border-color:var(--ok)!important;background:rgba(34,197,94,.08)!important}
 .option.wrong-ans{border-color:var(--err)!important;background:rgba(239,68,68,.08)!important}
-.opt-letter{min-width:26px;height:26px;background:var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:var(--accent);flex-shrink:0}
 .option input{display:none}
-.option span:last-child{font-size:.9rem;line-height:1.5}
+.option-letter{
+  font-family:var(--mono);font-size:11px;color:var(--muted);
+  background:var(--border);border-radius:4px;padding:1px 7px;flex-shrink:0;margin-top:1px;
+}
+.option.selected .option-letter{background:var(--accent);color:#fff}
+.option.correct-ans .option-letter{background:var(--ok);color:#fff}
+.option.wrong-ans .option-letter{background:var(--err);color:#fff}
+
+/* ── TRUE / FALSE ── */
 .tf-row{display:flex;gap:10px}
-.tf-btn{flex:1;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);font-size:.9rem;cursor:pointer;transition:.2s;font-family:inherit}
-.tf-btn:hover{border-color:#f59e0b50}
-.tf-btn.selected{border-color:var(--accent);background:rgba(245,158,11,.08)}
+.tf-btn{
+  flex:1;padding:11px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text);font-family:var(--sans);font-size:14px;
+  font-weight:500;cursor:pointer;transition:all .18s;
+}
+.tf-btn:hover{border-color:var(--accent)}
+.tf-btn.selected{border-color:var(--accent);background:rgba(79,142,247,.12)}
 .tf-btn.correct-ans{border-color:var(--ok)!important;background:rgba(34,197,94,.1)!important}
-.tf-btn.wrong-ans{border-color:var(--err)!important;background:rgba(239,68,68,.08)!important}
-.fill-input{width:100%;background:#060d1a;border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:.9rem;outline:none;transition:.2s;font-family:inherit}
+.tf-btn.wrong-ans{border-color:var(--err)!important;background:rgba(239,68,68,.1)!important}
+
+/* ── FILL ── */
+.fill-input{
+  width:100%;background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;padding:11px 15px;font-family:var(--mono);font-size:14px;
+  color:var(--text);outline:none;transition:border-color .18s;direction:ltr;text-align:center;
+}
 .fill-input:focus{border-color:var(--accent)}
-.fill-input.correct-ans{border-color:var(--ok)!important}
-.fill-input.wrong-ans{border-color:var(--err)!important}
-.q-feedback{margin-top:10px;font-size:.825rem;padding:8px 12px;border-radius:8px;display:none}
+.fill-input.correct-ans{border-color:var(--ok)!important;background:rgba(34,197,94,.06)}
+.fill-input.wrong-ans{border-color:var(--err)!important;background:rgba(239,68,68,.06)}
+
+/* ── MATCH ── */
+.match-grid{display:grid;grid-template-columns:1fr auto 1fr;gap:10px 14px;align-items:center}
+.match-left{
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:9px 13px;font-family:var(--mono);font-size:13px;text-align:center;direction:ltr;
+}
+.match-arrow{color:var(--muted);font-size:16px;text-align:center}
+.match-select{
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:8px 11px;font-family:var(--sans);font-size:13px;color:var(--text);
+  cursor:pointer;width:100%;outline:none;transition:border-color .18s;text-align:center;
+}
+.match-select:focus{border-color:var(--accent)}
+.match-select.correct-ans{border-color:var(--ok)!important;background:rgba(34,197,94,.08)!important}
+.match-select.wrong-ans{border-color:var(--err)!important;background:rgba(239,68,68,.08)!important}
+@media(max-width:600px){.match-grid{grid-template-columns:1fr}.match-arrow{display:none}}
+
+/* ── SORT ── */
+.sort-list{display:flex;flex-direction:column;gap:8px}
+.sort-item{
+  display:flex;align-items:center;gap:12px;padding:10px 14px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  cursor:grab;transition:all .15s;font-size:14px;user-select:none;
+}
+.sort-item:hover{border-color:var(--accent2)}
+.sort-item.dragging{opacity:.4;border-style:dashed}
+.sort-item.correct-sort{border-color:var(--ok)!important;background:rgba(34,197,94,.07)!important}
+.sort-item.wrong-sort{border-color:var(--err)!important;background:rgba(239,68,68,.07)!important}
+.drag-handle{color:var(--muted);font-size:15px;cursor:grab}
+
+/* ── FEEDBACK ── */
+.q-feedback{
+  margin-top:10px;padding:9px 13px;border-radius:8px;
+  font-size:13px;display:none;line-height:1.6;
+}
 .q-feedback.show{display:block}
-.q-feedback.ok{background:rgba(34,197,94,.1);color:var(--ok)}
-.q-feedback.err{background:rgba(239,68,68,.08);color:#fca5a5}
-.submit-wrap{text-align:center;margin:28px 0}
-.btn-submit{background:linear-gradient(to left,var(--accent),#f97316);border:none;color:#000;font-weight:800;font-size:1rem;padding:14px 36px;border-radius:12px;cursor:pointer;transition:.2s;font-family:inherit}
-.btn-submit:hover{opacity:.9;transform:scale(1.02)}
+.q-feedback.ok{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.22);color:#86efac}
+.q-feedback.err{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.22);color:#fca5a5}
+
+/* ── SUBMIT ── */
+.submit-wrap{text-align:center;margin-top:36px}
+.btn-submit{
+  background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;
+  border:none;border-radius:10px;padding:15px 44px;font-family:var(--sans);
+  font-size:15px;font-weight:700;cursor:pointer;transition:opacity .2s,transform .15s;
+}
+.btn-submit:hover{opacity:.9;transform:translateY(-1px)}
 .btn-submit:disabled{opacity:.4;cursor:not-allowed;transform:none}
-.result-screen{display:none;text-align:center;padding:32px 16px;max-width:660px;margin:0 auto}
+
+/* ── RESULT ── */
+.result-screen{display:none;text-align:center;padding:56px 20px;max-width:820px;margin:0 auto}
 .result-screen.show{display:block}
-.score-ring{width:150px;height:150px;margin:0 auto 24px;position:relative}
-.score-ring svg{transform:rotate(-90deg)}
-.ring-bg{fill:none;stroke:var(--border);stroke-width:10}
+.score-ring{width:160px;height:160px;margin:0 auto 26px;position:relative}
+.score-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:var(--surface2);stroke-width:10}
 .ring-val{fill:none;stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset 1.2s ease,stroke .4s}
 .score-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
-.score-num{font-size:2.4rem;font-weight:900}
-.score-denom{font-size:.8rem;color:var(--muted)}
-.result-grade{font-size:1.5rem;font-weight:800;margin-bottom:6px}
-.result-sub{color:var(--muted);font-size:.875rem;margin-bottom:24px}
-.breakdown{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;text-align:right}
-.breakdown-row{display:flex;justify-content:space-between;padding:6px 0;font-size:.85rem;border-bottom:1px solid var(--border)}
+.score-num{font-family:var(--mono);font-size:36px;font-weight:700;line-height:1}
+.score-denom{font-size:13px;color:var(--muted);font-family:var(--mono)}
+.result-grade{font-size:26px;font-weight:700;margin-bottom:6px}
+.result-sub{color:var(--muted);font-size:13px;margin-bottom:28px}
+.result-breakdown{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:18px;max-width:480px;margin:0 auto 24px;text-align:right;
+}
+.breakdown-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;
+}
 .breakdown-row:last-child{border-bottom:none}
-.pts-ok{color:var(--ok);font-weight:700}
-.pts-err{color:var(--err);font-weight:700}
-.btn-retry{background:var(--border);border:none;color:var(--text);font-size:.9rem;padding:10px 28px;border-radius:10px;cursor:pointer;font-family:inherit;transition:.2s}
-.btn-retry:hover{background:var(--accent);color:#000}
+.pts-ok{color:var(--ok);font-family:var(--mono);font-weight:700}
+.pts-err{color:var(--err);font-family:var(--mono);font-weight:700}
+.btn-retry{
+  background:var(--surface);border:1px solid var(--border);color:var(--text);
+  border-radius:10px;padding:11px 30px;font-family:var(--sans);font-size:14px;
+  cursor:pointer;transition:border-color .2s;
+}
+.btn-retry:hover{border-color:var(--accent)}
 </style>
 </head>
 <body>
+
 <div class="header">
-  <div class="header-icon">📝</div>
-  <div class="header-title" id="quizTitle"></div>
-  <div class="header-sub" id="quizSub"></div>
-  <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="badge" id="quizBadge"></div>
+  <h1 id="quizTitle">اختبار</h1>
+  <p id="quizSub"></p>
+</div>
+
+<div class="progress-bar-wrap">
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
   <div class="progress-label" id="progressLabel">0 / ${progressSuffix}</div>
 </div>
 
 <div class="container" id="quizContainer">
 <!-- QUESTION_CARDS_START -->
 <!-- AI: Insert exactly ${totalQuestions} question cards here.
-     Available types — use this EXACT HTML structure:
+     Available types — use EXACT HTML structure shown below.
+     Replace N with the question number (1, 2, 3…).
 
-MCQ (اختيار من متعدد):
-<div class="q-card" data-qid="N" data-type="mcq" data-points="${Math.floor(100/totalQuestions)}">
-  <div class="q-meta"><span class="q-num">NN</span><span class="q-type">اختيار من متعدد</span><span class="q-points">${Math.floor(100/totalQuestions)} نقاط</span></div>
+━━ MCQ (اختيار من متعدد) ━━
+<div class="q-card" data-qid="N" data-type="mcq" data-points="${ptsEach}">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">اختيار من متعدد</span><span class="q-points">${ptsEach} نقاط</span></div>
   <div class="q-text">نص السؤال</div>
   <div class="options">
-    <label class="option"><input type="radio" name="qN" value="a"><span class="opt-letter">أ</span><span>الخيار أ</span></label>
-    <label class="option"><input type="radio" name="qN" value="b"><span class="opt-letter">ب</span><span>الخيار ب</span></label>
-    <label class="option"><input type="radio" name="qN" value="c"><span class="opt-letter">ج</span><span>الخيار ج</span></label>
-    <label class="option"><input type="radio" name="qN" value="d"><span class="opt-letter">د</span><span>الخيار د</span></label>
+    <label class="option"><input type="radio" name="qN" value="a"><span class="option-letter">أ</span>الخيار أ</label>
+    <label class="option"><input type="radio" name="qN" value="b"><span class="option-letter">ب</span>الخيار ب</label>
+    <label class="option"><input type="radio" name="qN" value="c"><span class="option-letter">ج</span>الخيار ج</label>
+    <label class="option"><input type="radio" name="qN" value="d"><span class="option-letter">د</span>الخيار د</label>
   </div>
   <div class="q-feedback"></div>
 </div>
 
-T/F (صح / خطأ):
-<div class="q-card" data-qid="N" data-type="tf" data-points="${Math.floor(100/totalQuestions)}">
-  <div class="q-meta"><span class="q-num">NN</span><span class="q-type">صح / خطأ</span><span class="q-points">${Math.floor(100/totalQuestions)} نقاط</span></div>
-  <div class="q-text">العبارة</div>
+━━ T/F (صح / خطأ) ━━
+<div class="q-card" data-qid="N" data-type="tf" data-points="${ptsEach}">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">صح / خطأ</span><span class="q-points">${ptsEach} نقاط</span></div>
+  <div class="q-text">العبارة هنا</div>
   <div class="tf-row">
     <button class="tf-btn" data-val="true" onclick="selectTF(this,N)">✓ صح</button>
     <button class="tf-btn" data-val="false" onclick="selectTF(this,N)">✗ خطأ</button>
@@ -338,13 +490,45 @@ T/F (صح / خطأ):
   <div class="q-feedback"></div>
 </div>
 
-Fill (أكمل الفراغ):
-<div class="q-card" data-qid="N" data-type="fill" data-points="${Math.floor(100/totalQuestions)}">
-  <div class="q-meta"><span class="q-num">NN</span><span class="q-type">أكمل الفراغ</span><span class="q-points">${Math.floor(100/totalQuestions)} نقاط</span></div>
+━━ Fill (أكمل الفراغ) ━━
+<div class="q-card" data-qid="N" data-type="fill" data-points="${ptsEach}">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">أكمل الفراغ</span><span class="q-points">${ptsEach} نقاط</span></div>
   <div class="q-text">السؤال مع ___ للفراغ</div>
-  <div class="fill-input-wrap"><input class="fill-input" id="fillN" type="text" placeholder="اكتب إجابتك هنا" autocomplete="off"></div>
+  <input class="fill-input" id="fill-qN" type="text" placeholder="اكتب إجابتك هنا" autocomplete="off">
   <div class="q-feedback"></div>
 </div>
+
+━━ Match (مطابقة) — IMPORTANT: selects MUST use id="match-qN-a", "match-qN-b", etc. ━━
+<div class="q-card" data-qid="N" data-type="match" data-points="${ptsEach}">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">مطابقة</span><span class="q-points">${ptsEach} نقاط</span></div>
+  <div class="q-text">طابق كل عنصر بمقابله الصحيح:</div>
+  <div class="match-grid" id="match-qN">
+    <div class="match-left">العنصر أ</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-a"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
+    <div class="match-left">العنصر ب</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-b"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
+    <div class="match-left">العنصر ج</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-c"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
+    <div class="match-left">العنصر د</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-d"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT["N"] = { type:"match", ans:{a:"v3",b:"v1",c:"v4",d:"v2"}, fb_ok:"...", fb_err:"..." };
+
+━━ Sort (ترتيب خطوات) — IMPORTANT: list id MUST be "sort-qN"; data-order = correct position 1,2,3,4 ━━
+<div class="q-card" data-qid="N" data-type="sort" data-points="${ptsEach}">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">ترتيب الخطوات</span><span class="q-points">${ptsEach} نقاط</span></div>
+  <div class="q-text">رتّب الخطوات التالية بالترتيب الصحيح (اسحب لإعادة الترتيب):</div>
+  <div class="sort-list" id="sort-qN">
+    <div class="sort-item" draggable="true" data-order="3"><span class="drag-handle">⠿</span>الخطوة الثالثة</div>
+    <div class="sort-item" draggable="true" data-order="1"><span class="drag-handle">⠿</span>الخطوة الأولى</div>
+    <div class="sort-item" draggable="true" data-order="4"><span class="drag-handle">⠿</span>الخطوة الرابعة</div>
+    <div class="sort-item" draggable="true" data-order="2"><span class="drag-handle">⠿</span>الخطوة الثانية</div>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT["N"] = { type:"sort", ans:["1","2","3","4"], fb_ok:"...", fb_err:"..." };
 -->
 <!-- QUESTION_CARDS_END -->
 
@@ -356,7 +540,7 @@ Fill (أكمل الفراغ):
 
 <div class="result-screen" id="resultScreen">
   <div class="score-ring">
-    <svg viewBox="0 0 120 120" width="150" height="150">
+    <svg viewBox="0 0 120 120">
       <circle class="ring-bg" cx="60" cy="60" r="50"/>
       <circle class="ring-val" id="ringVal" cx="60" cy="60" r="50" stroke-dasharray="314" stroke-dashoffset="314"/>
     </svg>
@@ -367,33 +551,46 @@ Fill (أكمل الفراغ):
   </div>
   <div class="result-grade" id="resultGrade"></div>
   <div class="result-sub" id="resultSub"></div>
-  <div class="breakdown" id="breakdown"></div>
+  <div class="result-breakdown" id="breakdown"></div>
   <button class="btn-retry" onclick="location.reload()">↺ إعادة الاختبار</button>
 </div>
 
 <script>
+// ── Init title/badge from <title> ─────────────────────────────────────────────
 (function(){
+  var t=document.title,sep=t.indexOf('|');
   var titleEl=document.getElementById('quizTitle');
   var subEl=document.getElementById('quizSub');
-  var t=document.title;
-  var sep=t.indexOf('|');
-  if(sep>0){titleEl.textContent=t.slice(0,sep).trim();subEl.textContent=t.slice(sep+1).trim();}
-  else{titleEl.textContent=t;subEl.textContent='';}
+  var badgeEl=document.getElementById('quizBadge');
+  if(sep>0){
+    titleEl.textContent=t.slice(sep+1).trim();
+    // badge = part before |
+    var badge=t.slice(0,sep).trim();
+    if(badge){badgeEl.textContent=badge;badgeEl.style.display='inline-block';}
+    else{badgeEl.style.display='none';}
+    subEl.textContent='اختبار شامل (${totalQuestions} سؤالاً) — أجب عن جميع الأسئلة ثم اضغط إرسال';
+  } else {
+    titleEl.textContent=t;
+    badgeEl.style.display='none';
+    subEl.textContent='اختبار شامل (${totalQuestions} سؤالاً)';
+  }
 })();
 
 var answers={};
 var submitted=false;
 var TOTAL=${totalQuestions};
-var PTS_EACH=${Math.floor(100/totalQuestions)};
+var PTS_EACH=${ptsEach};
 
-// ── CORRECT ANSWERS — AI fills this object ──────────────────────────────────
-// Key = question number as STRING (e.g. "1","2",…,"${totalQuestions}")
-// Value = { ans: string, fb_ok: string, fb_err: string }
-// MCQ ans: "a"|"b"|"c"|"d"   T/F ans: "true"|"false"   Fill ans: expected word/phrase
+// ── CORRECT ANSWERS — AI fills this object ────────────────────────────────────
+// Key = question number as STRING ("1","2",…,"${totalQuestions}")
+// mcq/tf/fill: { ans:"a"|"b"|"c"|"d"|"true"|"false"|"word", fb_ok:"...", fb_err:"..." }
+// match:       { type:"match", ans:{a:"val",b:"val",c:"val",d:"val"}, fb_ok:"...", fb_err:"..." }
+// sort:        { type:"sort",  ans:["1","2","3","4"], fb_ok:"...", fb_err:"..." }
 const CORRECT={
 };
-// ────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
+// ── MCQ ───────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.option input[type="radio"]').forEach(function(r){
   r.addEventListener('change',function(){
     if(submitted)return;
@@ -401,75 +598,164 @@ document.querySelectorAll('.option input[type="radio"]').forEach(function(r){
     card.querySelectorAll('.option').forEach(function(o){o.classList.remove('selected');});
     this.closest('.option').classList.add('selected');
     answers[card.dataset.qid]=this.value;
+    card.classList.add('answered');
     updateProgress();
   });
 });
+
+// ── FILL ──────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.fill-input').forEach(function(inp){
   inp.addEventListener('input',function(){
     if(submitted)return;
     var card=this.closest('.q-card');
-    answers[card.dataset.qid]=this.value.trim();
+    var v=this.value.trim();
+    answers[card.dataset.qid]=v;
+    if(v)card.classList.add('answered');else card.classList.remove('answered');
     updateProgress();
   });
 });
+
+// ── T/F ───────────────────────────────────────────────────────────────────────
 function selectTF(btn,qid){
   if(submitted)return;
-  btn.closest('.q-card').querySelectorAll('.tf-btn').forEach(function(b){b.classList.remove('selected');});
+  var card=btn.closest('.q-card');
+  card.querySelectorAll('.tf-btn').forEach(function(b){b.classList.remove('selected');});
   btn.classList.add('selected');
   answers[String(qid)]=btn.dataset.val;
+  card.classList.add('answered');
   updateProgress();
 }
+
+// ── MATCH ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.match-select').forEach(function(sel){
+  sel.addEventListener('change',function(){
+    if(submitted)return;
+    var card=this.closest('.q-card');
+    var qid=card.dataset.qid;
+    var obj={};
+    card.querySelectorAll('select').forEach(function(s){
+      // id pattern: match-qN-KEY  →  last segment is the key
+      var key=s.id.split('-').pop();
+      obj[key]=s.value;
+    });
+    answers[qid]=obj;
+    if(Object.values(obj).some(function(v){return v!=='';}))card.classList.add('answered');
+    updateProgress();
+  });
+});
+
+// ── DRAG-SORT ─────────────────────────────────────────────────────────────────
+var dragSrc=null;
+document.querySelectorAll('.sort-list').forEach(function(list){
+  list.querySelectorAll('.sort-item').forEach(function(item){
+    item.addEventListener('dragstart',function(e){
+      dragSrc=this;this.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';
+    });
+    item.addEventListener('dragend',function(){this.classList.remove('dragging');});
+    item.addEventListener('dragover',function(e){
+      e.preventDefault();
+      if(dragSrc&&dragSrc!==this){
+        var items=[].slice.call(this.parentNode.querySelectorAll('.sort-item'));
+        var srcIdx=items.indexOf(dragSrc),tgtIdx=items.indexOf(this);
+        if(srcIdx<tgtIdx)this.parentNode.insertBefore(dragSrc,this.nextSibling);
+        else this.parentNode.insertBefore(dragSrc,this);
+      }
+    });
+    item.addEventListener('drop',function(e){e.preventDefault();});
+  });
+});
+
+// ── PROGRESS ─────────────────────────────────────────────────────────────────
+function countAnswered(){
+  var n=0;
+  document.querySelectorAll('.q-card').forEach(function(card){
+    var type=card.dataset.type,qid=card.dataset.qid;
+    if(type==='sort'){n++;return;} // sort always has some order
+    var v=answers[qid];
+    if(v===undefined||v===null||v==='')return;
+    if(typeof v==='object'){
+      if(Object.values(v).some(function(x){return x!=='';}))n++;
+    } else n++;
+  });
+  return n;
+}
 function updateProgress(){
-  var n=Object.values(answers).filter(function(v){return v!=='';}).length;
+  var n=countAnswered();
   document.getElementById('progressFill').style.width=(n/TOTAL*100)+'%';
   document.getElementById('progressLabel').textContent=n+' / ${progressSuffix}';
 }
 
+// ── SUBMIT ────────────────────────────────────────────────────────────────────
 function submitQuiz(){
   submitted=true;
   document.getElementById('submitBtn').disabled=true;
-  var total=0;
-  var sections=[];
+  var total=0,sections=[];
   document.querySelectorAll('.q-card').forEach(function(card){
-    var qid=card.dataset.qid;
-    var cfg=CORRECT[qid];
+    var qid=card.dataset.qid,cfg=CORRECT[qid];
     if(!cfg)return;
     var fb=card.querySelector('.q-feedback');
-    var type=card.dataset.type;
-    var correct=false;
+    var type=card.dataset.type,correct=false;
+
     if(type==='fill'){
       var inp=card.querySelector('.fill-input');
-      correct=inp.value.trim().toLowerCase()===String(cfg.ans).toLowerCase();
-      inp.classList.add(correct?'correct-ans':'wrong-ans');
+      var userVal=(inp?inp.value:'').trim().toLowerCase();
+      var expVal=String(cfg.ans).toLowerCase().replace(/\\s+/g,'');
+      correct=userVal.replace(/\\s+/g,'')===expVal;
+      if(inp)inp.classList.add(correct?'correct-ans':'wrong-ans');
+
     } else if(type==='mcq'){
-      var userVal=answers[qid];
-      correct=userVal===cfg.ans;
+      var uv=answers[qid];correct=uv===cfg.ans;
       card.querySelectorAll('.option').forEach(function(opt){
-        var radio=opt.querySelector('input');
-        if(radio.value===cfg.ans)opt.classList.add('correct-ans');
-        else if(radio.value===userVal&&!correct)opt.classList.add('wrong-ans');
+        var r=opt.querySelector('input');
+        if(!r)return;
+        if(r.value===cfg.ans)opt.classList.add('correct-ans');
+        else if(r.value===uv&&!correct)opt.classList.add('wrong-ans');
       });
+
     } else if(type==='tf'){
-      var userVal=answers[qid];
-      correct=userVal===cfg.ans;
+      var uv2=answers[qid];correct=uv2===cfg.ans;
       card.querySelectorAll('.tf-btn').forEach(function(btn){
         if(btn.dataset.val===cfg.ans)btn.classList.add('correct-ans');
-        else if(btn.dataset.val===userVal&&!correct)btn.classList.add('wrong-ans');
+        else if(btn.dataset.val===uv2&&!correct)btn.classList.add('wrong-ans');
       });
+
+    } else if(type==='match'){
+      var allOk=true;
+      var correctMap=cfg.ans||{};
+      card.querySelectorAll('select').forEach(function(sel){
+        var key=sel.id.split('-').pop();
+        var ok=(sel.value===correctMap[key]);
+        if(!ok)allOk=false;
+        sel.classList.add(ok?'correct-ans':'wrong-ans');
+        sel.disabled=true;
+      });
+      correct=allOk;
+
+    } else if(type==='sort'){
+      var sortList=document.getElementById('sort-q'+qid);
+      if(sortList){
+        var items=[].slice.call(sortList.querySelectorAll('.sort-item'));
+        var userOrder=items.map(function(i){return i.dataset.order;});
+        var expOrder=Array.isArray(cfg.ans)?cfg.ans:[];
+        correct=JSON.stringify(userOrder)===JSON.stringify(expOrder);
+        items.forEach(function(i){i.classList.add(correct?'correct-sort':'wrong-sort');i.draggable=false;});
+      }
     }
+
     card.classList.add(correct?'correct':'wrong');
-    fb.textContent=(correct?'✓ ':' ✗ ')+(correct?cfg.fb_ok:cfg.fb_err);
+    fb.textContent=(correct?'✓ ':'✗ ')+(correct?cfg.fb_ok:cfg.fb_err);
     fb.className='q-feedback show '+(correct?'ok':'err');
-    var cardPts=parseInt(card.dataset.points,10)||PTS_EACH;
-    if(correct)total+=cardPts;
-    sections.push({qid:Number(qid),correct:correct,pts:correct?cardPts:0});
+    var pts=parseInt(card.dataset.points,10)||PTS_EACH;
+    if(correct)total+=pts;
+    sections.push({qid:Number(qid),correct:correct,pts:correct?pts:0});
   });
-  // clamp to 100 in case of floating-point / rounding surplus
   total=Math.min(100,total);
   showResult(total,sections);
   if(typeof window.submitScore==='function'){window.submitScore(total);}
 }
 
+// ── RESULT ────────────────────────────────────────────────────────────────────
 function showResult(score,sections){
   document.getElementById('quizContainer').style.display='none';
   var rs=document.getElementById('resultScreen');
@@ -477,22 +763,22 @@ function showResult(score,sections){
   var color=score>=80?'#22c55e':score>=60?'#f59e0b':'#ef4444';
   var ring=document.getElementById('ringVal');
   ring.style.stroke=color;
-  setTimeout(function(){ring.style.strokeDashoffset=314*(1-score/100);},80);
+  setTimeout(function(){ring.style.strokeDashoffset=314*(1-score/100);},100);
   var numEl=document.getElementById('scoreNum');
   numEl.style.color=color;
-  var n=0;var t=setInterval(function(){n=Math.min(n+2,score);numEl.textContent=n;if(n>=score)clearInterval(t);},18);
+  var n=0,t=setInterval(function(){n=Math.min(n+2,score);numEl.textContent=n;if(n>=score)clearInterval(t);},18);
   var grade=document.getElementById('resultGrade');
   var sub=document.getElementById('resultSub');
-  if(score>=90){grade.textContent='🏆 ممتاز';grade.style.color='#22c55e';sub.textContent='أداء رائع! أنت تتقن هذا المحتوى.';}
-  else if(score>=70){grade.textContent='⭐ جيد جداً';grade.style.color='#4f8ef7';sub.textContent='فهم متين، واصل التقدم!';}
-  else if(score>=50){grade.textContent='✔ مقبول';grade.style.color='#f59e0b';sub.textContent='راجع الأخطاء لترسيخ الفهم.';}
-  else{grade.textContent='📚 يحتاج مراجعة';grade.style.color='#ef4444';sub.textContent='ننصح بمراجعة المحتوى مرة أخرى.';}
+  if(score>=90){grade.textContent='🏆 ممتاز';grade.style.color='#22c55e';sub.textContent='أداء استثنائي! أنت تتقن هذا المحتوى تماماً.';}
+  else if(score>=70){grade.textContent='⭐ جيد جداً';grade.style.color='#4f8ef7';sub.textContent='فهم متين للأساسيات، واصل التقدم!';}
+  else if(score>=50){grade.textContent='✔ مقبول';grade.style.color='#f59e0b';sub.textContent='اجتزت الاختبار، راجع الأخطاء لترسيخ الفهم.';}
+  else{grade.textContent='📚 يحتاج مراجعة';grade.style.color='#ef4444';sub.textContent='ننصح بمراجعة المحتوى مرة أخرى قبل إعادة الاختبار.';}
   var bd=document.getElementById('breakdown');
-  bd.innerHTML='<div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">تفصيل الدرجات</div>';
+  bd.innerHTML='<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">تفصيل الدرجات</div>';
   sections.sort(function(a,b){return a.qid-b.qid;}).forEach(function(s){
-    bd.innerHTML+='<div class="breakdown-row"><span>سؤال '+s.qid+'</span><span class="'+(s.correct?'pts-ok':'pts-err')+'">'+(s.correct?'+'+s.pts+' ✓':'0 ✗')+'</span></div>';
+    bd.innerHTML+='<div class="breakdown-row"><span>س'+s.qid+'</span><span class="'+(s.correct?'pts-ok':'pts-err')+'">'+(s.correct?'+'+s.pts+' ✓':'0 ✗')+'</span></div>';
   });
-  bd.innerHTML+='<div class="breakdown-row" style="font-weight:800"><span>المجموع الكلي</span><span style="color:'+color+'">'+score+'/100</span></div>';
+  bd.innerHTML+='<div class="breakdown-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>المجموع</span><span style="color:'+color+'">'+score+' / 100</span></div>';
   window.scrollTo({top:0,behavior:'smooth'});
 }
 </script>
@@ -549,25 +835,29 @@ export function buildStageContentSummary(stage: StageContent): string {
 
 const UNIT_QUIZ_SYSTEM_PROMPT =
   `أنت خبير تصميم اختبارات للمنصة التعليمية نُخبة. مهمتك توليد ملف HTML كامل لاختبار وحدة دراسية.
-قواعد صارمة:
-1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة بلا أي نص قبله.
-2. استخدم القالب المُرفق بالضبط (CSS + JS). لا تحذف منه شيئاً.
-3. 10 أسئلة بالضبط: 4 اختيار من متعدد + 3 صح/خطأ + 3 أكمل الفراغ. كل سؤال = 10 نقاط.
-4. ضع عنوان الاختبار في <title> بالتنسيق: "اختبار الوحدة | اسم الوحدة".
-5. الأسئلة تختبر الفهم والتطبيق، لا الحفظ الحرفي.
-6. أكمل كائن CORRECT بالأجوبة الصحيحة وتغذية راجعة مفيدة عربية.
-7. window.submitScore(total) يُستدعى تلقائياً في showResult — لا تغيّر هذا.`;
+قواعد صارمة (الإخلال بها يُبطل الاختبار):
+1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة، لا نص قبله أبداً.
+2. استخدم القالب المُرفق بالضبط (CSS + JS كاملَين). لا تحذف منه ولا تعدّل CSS أو JS.
+3. 10 أسئلة بالضبط بالتوزيع: 4 اختيار من متعدد + 2 صح/خطأ + 2 أكمل الفراغ + 1 مطابقة + 1 ترتيب خطوات. كل سؤال = 10 نقاط.
+4. ضع عنوان الاختبار في <title> بالتنسيق: "رمز الوحدة · اسم التخصص | اسم الوحدة"  (مثال: "1.1.1 · uni-it | المنطق الرقمي").
+5. الأسئلة تختبر الفهم والتطبيق، لا الحفظ الحرفي. استخدم كود أو أرقاماً حيثما كان مناسباً.
+6. أكمل كائن CORRECT بجميع الأجوبة الصحيحة وتغذية راجعة واضحة بالعربية.
+   - match: { type:"match", ans:{a:"val",b:"val",c:"val",d:"val"}, fb_ok:"...", fb_err:"..." }
+   - sort:  { type:"sort",  ans:["1","2","3","4"], fb_ok:"...", fb_err:"..." }
+7. match: selects MUST use id="match-qN-a", "match-qN-b", إلخ داخل div id="match-qN".
+8. sort:  list MUST use id="sort-qN"؛ كل item يحمل data-order = رقمه الصحيح (1,2,3,4) ويُعرض في ترتيب مختلط.
+9. window.submitScore(total) تُستدعى تلقائياً — لا تغيّرها أبداً.`;
 
 const STAGE_QUIZ_SYSTEM_PROMPT =
   `أنت خبير تصميم اختبارات للمنصة التعليمية نُخبة. مهمتك توليد ملف HTML كامل لاختبار مرحلة دراسية كاملة.
-قواعد صارمة:
-1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة بلا أي نص قبله.
-2. استخدم القالب المُرفق بالضبط (CSS + JS). لا تحذف منه شيئاً.
+قواعد صارمة (الإخلال بها يُبطل الاختبار):
+1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة، لا نص قبله أبداً.
+2. استخدم القالب المُرفق بالضبط (CSS + JS كاملَين). لا تحذف منه ولا تعدّل CSS أو JS.
 3. 20 سؤالاً بالضبط: 8 اختيار من متعدد + 6 صح/خطأ + 6 أكمل الفراغ. كل سؤال = 5 نقاط.
 4. ضع عنوان الاختبار في <title> بالتنسيق: "اختبار المرحلة | اسم المرحلة".
-5. الأسئلة سهلة — تختبر المفاهيم الأساسية فقط، موزعة على جميع وحدات المرحلة بالتساوي.
+5. الأسئلة سهلة إلى متوسطة — موزعة بالتساوي على جميع وحدات المرحلة.
 6. أكمل كائن CORRECT بالأجوبة الصحيحة وتغذية راجعة مفيدة عربية.
-7. window.submitScore(total) يُستدعى تلقائياً في showResult — لا تغيّر هذا.`;
+7. window.submitScore(total) تُستدعى تلقائياً — لا تغيّرها أبداً.`;
 
 // ─── Level content extraction ─────────────────────────────────────────────────
 
@@ -709,17 +999,17 @@ const LEVEL_QUIZ_SYSTEM_PROMPT =
   `أنت خبير تصميم اختبارات للمنصة التعليمية نُخبة. مهمتك توليد ملف HTML كامل لاختبار مستوى دراسي كامل.
 قواعد صارمة (الإخلال بها يُبطل الاختبار):
 1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة، لا نص قبله أبداً.
-2. استخدم القالب المُرفق بالضبط (CSS + JS كاملَين). لا تحذف منه شيئاً.
+2. استخدم القالب المُرفق بالضبط (CSS + JS كاملَين). لا تحذف منه ولا تعدّل CSS أو JS.
 3. 30 سؤالاً بالضبط — التوزيع الإلزامي بالنقاط:
-   • 10 أسئلة اختيار من متعدد  → data-points="5" لكل منها  (10 × 5 = 50 نقطة)
-   • 10 أسئلة صح / خطأ        → data-points="3" لكل منها  (10 × 3 = 30 نقطة)
-   • 10 أسئلة أكمل الفراغ     → data-points="2" لكل منها  (10 × 2 = 20 نقطة)
+   • 10 أسئلة اختيار من متعدد  → data-points="5"  (10 × 5 = 50 نقطة)
+   • 10 أسئلة صح / خطأ        → data-points="3"  (10 × 3 = 30 نقطة)
+   • 10 أسئلة أكمل الفراغ     → data-points="2"  (10 × 2 = 20 نقطة)
    المجموع = 100 نقطة بالضبط.
-4. وزّع الأسئلة بالتساوي على جميع مراحل المستوى — كل مرحلة تحصل على حصة متكافئة.
-5. ضع عنوان الاختبار في <title> بالتنسيق: "اختبار المستوى | اسم المستوى".
-6. الأسئلة سهلة إلى متوسطة — تختبر المفاهيم الأساسية والأهداف الجوهرية، لا التفاصيل الدقيقة.
-7. أكمل كائن CORRECT بالأجوبة الصحيحة وتغذية راجعة مفيدة وواضحة بالعربية.
-8. تأكد أن data-points موجودة على كل بطاقة سؤال (البرمجة تقرأها لحساب الدرجة).
+4. data-points مطلوبة على كل بطاقة — البرمجة تقرأها لحساب الدرجة.
+5. وزّع الأسئلة بالتساوي على جميع مراحل المستوى.
+6. ضع عنوان الاختبار في <title> بالتنسيق: "اختبار المستوى | اسم المستوى".
+7. الأسئلة سهلة إلى متوسطة — المفاهيم الأساسية والأهداف الجوهرية.
+8. أكمل كائن CORRECT بالأجوبة الصحيحة وتغذية راجعة مفيدة وواضحة بالعربية.
 9. window.submitScore(total) تُستدعى تلقائياً في showResult — لا تغيّرها.`;
 
 /** Generate and validate a 30-question level quiz HTML page (mixed point weights, total = 100). */
