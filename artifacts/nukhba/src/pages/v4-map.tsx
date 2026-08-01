@@ -17,6 +17,7 @@ import {
   Loader2, Lock, Star, FlaskConical, Trophy, Crown, BookOpen,
   CheckCircle, Play, Pause, ChevronRight, ChevronDown, Sparkles, Map, ArrowRight,
   XCircle, RotateCcw, Zap, GraduationCap, Headphones, ScrollText,
+  ShieldCheck, ClipboardList, ChevronLeft, Medal,
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { PathSwitcher } from "@/components/path-switcher";
@@ -125,9 +126,9 @@ type RenderItem =
   | { type: "node"; node: FlatNode; xOff: number; showConnector: boolean }
   | { type: "podcast"; podcast: PodcastItem; xOff: number }
   | { type: "story"; story: StoryItem; xOff: number; showConnector: boolean }
-  | { type: "quiz_action"; unitCode: string; unitName: string; unitTestCode: string | null }
-  | { type: "stage_quiz_action"; stageIndex: number; stageName: string; levelIndex: number; stageTestCode: string | null }
-  | { type: "level_quiz_action"; levelIndex: number; levelName: string; levelTestCode: string | null };
+  | { type: "quiz_action"; unitCode: string; unitName: string; unitTestCode: string | null; unitTestStatus: NodeStatus | null }
+  | { type: "stage_quiz_action"; stageIndex: number; stageName: string; levelIndex: number; stageTestCode: string | null; stageTestStatus: NodeStatus | null }
+  | { type: "level_quiz_action"; levelIndex: number; levelName: string; levelTestCode: string | null; levelTestStatus: NodeStatus | null };
 
 function flattenMap(mapData: MapData): FlatNode[] {
   const nodes: FlatNode[] = [];
@@ -1510,13 +1511,19 @@ export default function V4Map() {
         // Emit in sort_order, stable (equal sort → insertion order)
         contentItems.sort((a, b) => a.sort - b.sort);
         for (const ci of contentItems) ci.run();
-        // AI quiz button — always shown at end of each expanded unit
-        items.push({ type: "quiz_action", unitCode: unit.code, unitName: unit.name, unitTestCode: unit.unitTest?.code ?? null });
+        // AI quiz gate — always shown at end of each expanded unit
+        items.push({
+          type: "quiz_action",
+          unitCode: unit.code,
+          unitName: unit.name,
+          unitTestCode: unit.unitTest?.code ?? null,
+          unitTestStatus: unit.unitTest?.status ?? null,
+        });
       }
       if (stage.hasStageTest && stage.stageTest) {
         pushNode({ id: stage.stageTest.code, label: "اختبار المرحلة", sublabel: stage.name, kind: "stage_test", status: stage.stageTest.status });
       }
-      // Stage quiz button — shown at the end of every expanded stage
+      // Stage quiz gate — shown at the end of every expanded stage
       if (stageExpanded) {
         items.push({
           type: "stage_quiz_action",
@@ -1524,18 +1531,20 @@ export default function V4Map() {
           stageName: stage.name,
           levelIndex: m.viewedLevelIndex ?? m.currentLevelIndex,
           stageTestCode: stage.stageTest?.code ?? null,
+          stageTestStatus: stage.stageTest?.status ?? null,
         });
       }
     }
     if (m.levelTest) {
       pushNode({ id: m.levelTest.code, label: "اختبار المستوى", sublabel: m.levelName, kind: "level_test", status: m.levelTest.status });
     }
-    // Level quiz button — always shown at the very end of the map
+    // Level quiz gate — always shown at the very end of the map
     items.push({
       type: "level_quiz_action",
       levelIndex: m.viewedLevelIndex ?? m.currentLevelIndex,
       levelName: m.levelName,
       levelTestCode: m.levelTest?.code ?? null,
+      levelTestStatus: m.levelTest?.status ?? null,
     });
     return items;
   }, [data, expandedStages, expandedUnits, podcastsByUnit, storiesByUnit]);
@@ -2032,32 +2041,75 @@ export default function V4Map() {
             }
             if (item.type === "quiz_action") {
               const isLoading = quizGenLoading.has(item.unitCode);
-              // Check if this unit already has a quiz: session, server-loaded scores, or map-authored quiz
               const existingQuizId = sessionQuizIds[item.unitCode] ||
                 serverUnitQuizIds[item.unitCode] ||
                 data?.map.stages.flatMap(s => s.units).find(u => u.code === item.unitCode)?.unitTest?.quizId;
+              const passed = item.unitTestStatus === "completed";
               return (
-                <div key={`quiz-action-${item.unitCode}`} className="flex flex-col items-center w-full mb-2">
-                  <button
-                    onClick={() => handleUnitQuizClick(item.unitCode, item.unitName, item.unitTestCode)}
-                    disabled={isLoading}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                <div key={`quiz-action-${item.unitCode}`} className="flex flex-col items-center w-full my-3 px-2">
+                  {/* gate connector line */}
+                  <div className="w-px h-4 bg-gradient-to-b from-transparent to-amber-500/40" />
+                  <div
+                    className="w-full max-w-[280px] rounded-2xl overflow-hidden"
                     style={{
-                      background: existingQuizId
-                        ? "linear-gradient(to left, rgba(34,197,94,0.15), rgba(16,185,129,0.1))"
-                        : "linear-gradient(to left, rgba(245,158,11,0.15), rgba(249,115,22,0.1))",
-                      border: `1px solid ${existingQuizId ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.3)"}`,
-                      color: existingQuizId ? "#4ade80" : "#f59e0b",
+                      background: passed
+                        ? "linear-gradient(135deg, rgba(34,197,94,0.12), rgba(16,185,129,0.07))"
+                        : "linear-gradient(135deg, rgba(245,158,11,0.13), rgba(234,88,12,0.08))",
+                      border: `1px solid ${passed ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.35)"}`,
+                      boxShadow: passed
+                        ? "0 0 20px rgba(34,197,94,0.08)"
+                        : "0 0 20px rgba(245,158,11,0.08)",
                     }}
                   >
-                    {isLoading ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /><span>جاري توليد الاختبار…</span></>
-                    ) : existingQuizId ? (
-                      <><Zap className="w-4 h-4" /><span>افتح اختبار الوحدة</span></>
-                    ) : (
-                      <><Zap className="w-4 h-4" /><span>اختبر نفسك ⚡</span></>
-                    )}
-                  </button>
+                    {/* header band */}
+                    <div
+                      className="flex items-center justify-between px-3 py-1.5"
+                      style={{
+                        background: passed
+                          ? "rgba(34,197,94,0.12)"
+                          : "rgba(245,158,11,0.12)",
+                        borderBottom: `1px solid ${passed ? "rgba(34,197,94,0.2)" : "rgba(245,158,11,0.2)"}`,
+                      }}
+                    >
+                      <span className="flex items-center gap-1 text-[10px] font-bold tracking-wide uppercase" style={{ color: passed ? "#4ade80" : "#f59e0b" }}>
+                        {passed ? <ShieldCheck className="w-3 h-3" /> : <ClipboardList className="w-3 h-3" />}
+                        اختبار إلزامي — وحدة
+                      </span>
+                      {passed && (
+                        <span className="flex items-center gap-0.5 text-[10px] font-bold text-emerald-400">
+                          <CheckCircle className="w-3 h-3" /> مجتاز
+                        </span>
+                      )}
+                    </div>
+                    {/* body */}
+                    <div className="px-3 py-2.5">
+                      <p className="text-xs font-bold text-foreground/90 mb-0.5 truncate">{item.unitName}</p>
+                      <p className="text-[10px] text-muted-foreground mb-2.5">
+                        {passed ? "أتممت هذه الوحدة بنجاح — يمكنك إعادة الاختبار في أي وقت" : "يجب اجتياز هذا الاختبار للانتقال إلى الوحدة التالية"}
+                      </p>
+                      <button
+                        onClick={() => handleUnitQuizClick(item.unitCode, item.unitName, item.unitTestCode)}
+                        disabled={isLoading}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                        style={{
+                          background: passed
+                            ? "rgba(34,197,94,0.18)"
+                            : "linear-gradient(to left, rgba(245,158,11,0.3), rgba(234,88,12,0.2))",
+                          border: `1px solid ${passed ? "rgba(34,197,94,0.4)" : "rgba(245,158,11,0.45)"}`,
+                          color: passed ? "#4ade80" : "#fbbf24",
+                        }}
+                      >
+                        {isLoading ? (
+                          <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>جاري التوليد…</span></>
+                        ) : existingQuizId ? (
+                          <><Zap className="w-3.5 h-3.5" /><span>{passed ? "إعادة الاختبار" : "ابدأ الاختبار الآن"}</span><ChevronLeft className="w-3.5 h-3.5 opacity-60" /></>
+                        ) : (
+                          <><Zap className="w-3.5 h-3.5" /><span>توليد الاختبار وبدئه</span><ChevronLeft className="w-3.5 h-3.5 opacity-60" /></>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="w-px h-4 bg-gradient-to-b from-amber-500/40 to-transparent" />
                 </div>
               );
             }
@@ -2065,29 +2117,83 @@ export default function V4Map() {
               const key = `${item.levelIndex}-${item.stageIndex}`;
               const isLoading = stageQuizGenLoading.has(key);
               const existingQuizId = sessionStageQuizIds[key] || serverStageQuizIds[key];
+              const passed = item.stageTestStatus === "completed";
               return (
-                <div key={`stage-quiz-action-${key}`} className="flex flex-col items-center w-full my-3">
-                  <div className="w-full max-w-xs">
-                    <button
-                      onClick={() => handleStageQuizClick(item.levelIndex, item.stageIndex, item.stageName, item.stageTestCode)}
-                      disabled={isLoading}
-                      className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                <div key={`stage-quiz-action-${key}`} className="flex flex-col items-center w-full my-4 px-2">
+                  {/* divider */}
+                  <div className="w-full max-w-xs flex items-center gap-2 mb-3">
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(139,92,246,0.4))" }} />
+                    <span className="text-[10px] font-bold text-violet-400/70 tracking-widest uppercase whitespace-nowrap">بوابة المرحلة</span>
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(139,92,246,0.4))" }} />
+                  </div>
+                  <div
+                    className="w-full max-w-[300px] rounded-2xl overflow-hidden"
+                    style={{
+                      background: passed
+                        ? "linear-gradient(135deg, rgba(34,197,94,0.12), rgba(16,185,129,0.07))"
+                        : "linear-gradient(135deg, rgba(109,40,217,0.18), rgba(139,92,246,0.1))",
+                      border: `1px solid ${passed ? "rgba(34,197,94,0.4)" : "rgba(139,92,246,0.45)"}`,
+                      boxShadow: passed
+                        ? "0 0 24px rgba(34,197,94,0.1)"
+                        : "0 2px 24px rgba(109,40,217,0.12)",
+                    }}
+                  >
+                    {/* header */}
+                    <div
+                      className="flex items-center justify-between px-3.5 py-2"
                       style={{
-                        background: existingQuizId
-                          ? "linear-gradient(to left, rgba(34,197,94,0.15), rgba(16,185,129,0.1))"
-                          : "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.15))",
-                        border: `1px solid ${existingQuizId ? "rgba(34,197,94,0.35)" : "rgba(139,92,246,0.4)"}`,
-                        color: existingQuizId ? "#4ade80" : "#c4b5fd",
+                        background: passed ? "rgba(34,197,94,0.12)" : "rgba(109,40,217,0.2)",
+                        borderBottom: `1px solid ${passed ? "rgba(34,197,94,0.2)" : "rgba(139,92,246,0.3)"}`,
                       }}
                     >
-                      {isLoading ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /><span>جاري توليد اختبار المرحلة…</span></>
-                      ) : existingQuizId ? (
-                        <><GraduationCap className="w-4 h-4" /><span>افتح اختبار المرحلة</span></>
-                      ) : (
-                        <><GraduationCap className="w-4 h-4" /><span>اختبار المرحلة الكاملة 📋</span></>
+                      <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-wide uppercase" style={{ color: passed ? "#4ade80" : "#c4b5fd" }}>
+                        {passed ? <ShieldCheck className="w-3.5 h-3.5" /> : <GraduationCap className="w-3.5 h-3.5" />}
+                        اختبار إلزامي — مرحلة
+                      </span>
+                      {passed && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400">
+                          <CheckCircle className="w-3.5 h-3.5" /> مجتاز
+                        </span>
                       )}
-                    </button>
+                    </div>
+                    {/* body */}
+                    <div className="px-3.5 py-3">
+                      <p className="text-sm font-bold text-foreground/90 mb-0.5">{item.stageName}</p>
+                      <p className="text-[11px] text-muted-foreground mb-3">
+                        {passed
+                          ? "أكملت هذه المرحلة — يمكنك تعزيز إتقانك بإعادة الاختبار"
+                          : "اختبار شامل لكل وحدات هذه المرحلة — اجتيازه إلزامي للمتابعة"}
+                      </p>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-3">
+                        <span className="flex items-center gap-1"><ClipboardList className="w-3 h-3" /> ٢٠ سؤالاً</span>
+                        <span>درجة النجاح: ٧٠٪</span>
+                        <span>١٠٠ نقطة</span>
+                      </div>
+                      <button
+                        onClick={() => handleStageQuizClick(item.levelIndex, item.stageIndex, item.stageName, item.stageTestCode)}
+                        disabled={isLoading}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                        style={{
+                          background: passed
+                            ? "rgba(34,197,94,0.18)"
+                            : "linear-gradient(to left, rgba(109,40,217,0.5), rgba(139,92,246,0.35))",
+                          border: `1px solid ${passed ? "rgba(34,197,94,0.45)" : "rgba(139,92,246,0.6)"}`,
+                          color: passed ? "#4ade80" : "#ddd6fe",
+                        }}
+                      >
+                        {isLoading ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" /><span>جاري توليد الاختبار…</span></>
+                        ) : existingQuizId ? (
+                          <><GraduationCap className="w-4 h-4" /><span>{passed ? "إعادة اختبار المرحلة" : "ابدأ اختبار المرحلة"}</span><ChevronLeft className="w-4 h-4 opacity-60" /></>
+                        ) : (
+                          <><GraduationCap className="w-4 h-4" /><span>توليد اختبار المرحلة</span><ChevronLeft className="w-4 h-4 opacity-60" /></>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="w-full max-w-xs flex items-center gap-2 mt-3">
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(139,92,246,0.25))" }} />
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(139,92,246,0.25))" }} />
                   </div>
                 </div>
               );
@@ -2096,49 +2202,112 @@ export default function V4Map() {
               const key = String(item.levelIndex);
               const isLoading = levelQuizGenLoading.has(key);
               const existingQuizId = sessionLevelQuizIds[key] || serverLevelQuizIds[key];
+              const passed = item.levelTestStatus === "completed";
               return (
-                <div key={`level-quiz-action-${key}`} className="flex flex-col items-center w-full my-5">
-                  <div className="w-full max-w-sm px-4">
-                    <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent mb-4" />
-                    <button
-                      onClick={() => handleLevelQuizClick(item.levelIndex, item.levelName, item.levelTestCode)}
-                      disabled={isLoading}
-                      className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                <div key={`level-quiz-action-${key}`} className="flex flex-col items-center w-full my-6 px-2">
+                  {/* ornamental divider */}
+                  <div className="w-full max-w-sm flex items-center gap-3 mb-4">
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(16,185,129,0.5))" }} />
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
+                      <Trophy className="w-4 h-4 text-emerald-400" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
+                    </div>
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(16,185,129,0.5))" }} />
+                  </div>
+
+                  <div
+                    className="w-full max-w-sm rounded-2xl overflow-hidden"
+                    style={{
+                      background: passed
+                        ? "linear-gradient(135deg, rgba(34,197,94,0.14), rgba(16,185,129,0.08))"
+                        : "linear-gradient(135deg, rgba(5,150,105,0.2), rgba(16,185,129,0.1))",
+                      border: `1.5px solid ${passed ? "rgba(34,197,94,0.5)" : "rgba(16,185,129,0.5)"}`,
+                      boxShadow: passed
+                        ? "0 0 32px rgba(34,197,94,0.12), inset 0 1px 0 rgba(255,255,255,0.05)"
+                        : "0 0 32px rgba(16,185,129,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    {/* header band */}
+                    <div
+                      className="flex items-center justify-between px-4 py-2.5"
                       style={{
-                        background: existingQuizId
-                          ? "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(16,185,129,0.15))"
-                          : "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.15))",
-                        border: `1px solid ${existingQuizId ? "rgba(34,197,94,0.5)" : "rgba(16,185,129,0.45)"}`,
-                        color: existingQuizId ? "#4ade80" : "#34d399",
-                        boxShadow: "0 0 24px rgba(16,185,129,0.08)",
+                        background: passed ? "rgba(34,197,94,0.15)" : "rgba(5,150,105,0.25)",
+                        borderBottom: `1px solid ${passed ? "rgba(34,197,94,0.25)" : "rgba(16,185,129,0.3)"}`,
                       }}
                     >
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <div className="flex flex-col items-start">
-                            <span>جاري توليد الاختبار الشامل للمستوى…</span>
-                            <span className="text-xs opacity-60 font-normal">٣٠ سؤالاً — قد يستغرق دقيقة</span>
-                          </div>
-                        </>
-                      ) : existingQuizId ? (
-                        <>
-                          <GraduationCap className="w-5 h-5" />
-                          <div className="flex flex-col items-start">
-                            <span>افتح الاختبار الشامل للمستوى</span>
-                            <span className="text-xs opacity-60 font-normal">٣٠ سؤالاً • ١٠٠ نقطة</span>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <GraduationCap className="w-5 h-5" />
-                          <div className="flex flex-col items-start">
-                            <span>اختبار المستوى الشامل 🏆</span>
-                            <span className="text-xs opacity-60 font-normal">٣٠ سؤالاً • ١٠٠ نقطة • يُولَّد بالذكاء الاصطناعي</span>
-                          </div>
-                        </>
+                      <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide uppercase text-emerald-300">
+                        {passed ? <Medal className="w-3.5 h-3.5" /> : <Crown className="w-3.5 h-3.5" />}
+                        اختبار إلزامي — المستوى
+                      </span>
+                      {passed && (
+                        <span className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                          <ShieldCheck className="w-3.5 h-3.5" /> مجتاز ✓
+                        </span>
                       )}
-                    </button>
+                    </div>
+                    {/* body */}
+                    <div className="px-4 py-4">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <p className="text-base font-bold text-foreground/90">{item.levelName}</p>
+                        {!passed && <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">مطلوب للانتقال</span>}
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                        {passed
+                          ? "أتممت هذا المستوى بنجاح — يمكنك مراجعة شاملة بإعادة الاختبار"
+                          : "اختبار شامل لكل مراحل هذا المستوى. اجتيازه إلزامي للانتقال إلى المستوى التالي."}
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 mb-4">
+                        {[
+                          { label: "الأسئلة", value: "٣٠" },
+                          { label: "درجة النجاح", value: "٧٠٪" },
+                          { label: "الدرجة الكاملة", value: "١٠٠" },
+                        ].map(({ label, value }) => (
+                          <div key={label} className="rounded-xl bg-black/25 border border-white/8 py-2 text-center">
+                            <p className="text-[10px] text-muted-foreground mb-0.5">{label}</p>
+                            <p className="text-sm font-bold text-foreground/80">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => handleLevelQuizClick(item.levelIndex, item.levelName, item.levelTestCode)}
+                        disabled={isLoading}
+                        className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                        style={{
+                          background: passed
+                            ? "rgba(34,197,94,0.2)"
+                            : "linear-gradient(to left, rgba(5,150,105,0.6), rgba(16,185,129,0.45))",
+                          border: `1px solid ${passed ? "rgba(34,197,94,0.5)" : "rgba(16,185,129,0.6)"}`,
+                          color: passed ? "#4ade80" : "#d1fae5",
+                          boxShadow: passed ? "none" : "0 4px 16px rgba(16,185,129,0.15)",
+                        }}
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>جاري توليد الاختبار الشامل…</span>
+                          </>
+                        ) : existingQuizId ? (
+                          <>
+                            {passed ? <Medal className="w-4 h-4" /> : <Trophy className="w-4 h-4" />}
+                            <span>{passed ? "إعادة الاختبار الشامل" : "ابدأ الاختبار الشامل الآن"}</span>
+                            <ChevronLeft className="w-4 h-4 opacity-60" />
+                          </>
+                        ) : (
+                          <>
+                            <Trophy className="w-4 h-4" />
+                            <span>توليد الاختبار الشامل وبدئه</span>
+                            <ChevronLeft className="w-4 h-4 opacity-60" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  {/* bottom ornament */}
+                  <div className="w-full max-w-sm flex items-center gap-3 mt-4">
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(16,185,129,0.3))" }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/40" />
+                    <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(16,185,129,0.3))" }} />
                   </div>
                 </div>
               );
