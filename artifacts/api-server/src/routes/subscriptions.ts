@@ -1522,17 +1522,23 @@ router.post("/admin/subscription-requests/:id/reject", requireSameOriginCsrf, as
 
   // ── إشعار للطالب عند الرفض (best-effort) ───────────────────────────────────
   if (rejected) {
-    const sName  = rejected.subjectName ?? rejected.subjectId ?? "";
-    const nTitle = "⚠️ طلب اشتراكك لم يُقبل";
-    const nBody  = `طلب اشتراكك في "${sName}" لم يُقبل. تواصل مع الدعم أو أعد إرسال الطلب.`;
+    const PLAN_LABELS: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
+    const sName    = rejected.subjectName ?? rejected.subjectId ?? "";
+    const pLabel   = PLAN_LABELS[rejected.planType ?? ""] ?? rejected.planType ?? "";
+    const nTitle   = "❌ طلب اشتراكك لم يُقبل";
+    const nBody    = `طلب باقة ${pLabel} في "${sName}" لم يُقبل. تواصل مع الدعم أو أعد إرسال الطلب.`;
+    const nData    = JSON.stringify({
+      url:         "/subscription",
+      type:        "subscription_rejected",
+      subjectName: sName,
+      planLabel:   pLabel,
+      planType:    rejected.planType,
+    });
     sendExpoToStudent(rejected.userId, nTitle, nBody, "/subscription").catch(() => {});
     sendVapidToStudent(rejected.userId, nTitle, nBody, "/subscription").catch(() => {});
     db.execute(sql`
       INSERT INTO notifications (user_id, type, title, body, data)
-      VALUES (
-        ${rejected.userId}, 'subscription_rejected', ${nTitle}, ${nBody},
-        ${JSON.stringify({ subjectId: rejected.subjectId, subjectName: sName, planType: rejected.planType })}::jsonb
-      )
+      VALUES (${rejected.userId}, 'subscription_rejected', ${nTitle}, ${nBody}, ${nData}::jsonb)
     `).catch(() => {});
   }
 });
@@ -1982,6 +1988,17 @@ router.post("/admin/users/:id/cancel-subscription", requireSameOriginCsrf, async
     .returning({ id: userSubjectSubscriptionsTable.id });
 
   res.json({ success: true, subjectSubscriptionsRevoked: removed.length });
+
+  // ── إشعار للطالب عند إلغاء الاشتراك الكامل (best-effort) ──────────────────
+  const nTitle = "🚫 تم إلغاء اشتراكك";
+  const nBody  = "تم إلغاء اشتراكك على المنصة من قِبل المشرف. تواصل مع الدعم لمزيد من التفاصيل.";
+  const nData  = JSON.stringify({ url: "/subscription", type: "subscription_cancelled" });
+  sendExpoToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+  sendVapidToStudent(targetId, nTitle, nBody, "/subscription").catch(() => {});
+  db.execute(sql`
+    INSERT INTO notifications (user_id, type, title, body, data)
+    VALUES (${targetId}, 'subscription_cancelled', ${nTitle}, ${nBody}, ${nData}::jsonb)
+  `).catch(() => {});
 });
 
 // ── Admin: cancel user's subject-specific subscription ────────────────────────
@@ -2015,6 +2032,25 @@ router.delete("/admin/users/:userId/subject-subscriptions/:subId", requireSameOr
       note: "Admin revoked subscription",
       metadata: { plan: sub.plan, region: sub.region, expiresAt: sub.expiresAt },
     });
+
+    // ── إشعار للطالب عند إلغاء اشتراك تخصص بعينه (best-effort) ───────────────
+    const PLAN_LABELS: Record<string, string> = { bronze: "البرونزية", silver: "الفضية", gold: "الذهبية" };
+    const sName  = sub.subjectName ?? sub.subjectId ?? "";
+    const pLabel = PLAN_LABELS[sub.plan ?? ""] ?? sub.plan ?? "";
+    const nTitle = "🚫 تم إلغاء اشتراكك";
+    const nBody  = `تم إلغاء باقة ${pLabel} في "${sName}" من قِبل المشرف. تواصل مع الدعم لمزيد من التفاصيل.`;
+    const nData  = JSON.stringify({
+      url:         "/subscription",
+      type:        "subscription_cancelled",
+      subjectName: sName,
+      planLabel:   pLabel,
+    });
+    sendExpoToStudent(sub.userId, nTitle, nBody, "/subscription").catch(() => {});
+    sendVapidToStudent(sub.userId, nTitle, nBody, "/subscription").catch(() => {});
+    db.execute(sql`
+      INSERT INTO notifications (user_id, type, title, body, data)
+      VALUES (${sub.userId}, 'subscription_cancelled', ${nTitle}, ${nBody}, ${nData}::jsonb)
+    `).catch(() => {});
   }
   res.json({ success: true });
 });

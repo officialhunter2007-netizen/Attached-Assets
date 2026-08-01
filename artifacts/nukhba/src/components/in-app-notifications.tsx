@@ -156,6 +156,102 @@ function SubscriptionCard({
   );
 }
 
+// ── Rejected / Cancelled card ─────────────────────────────────────────────────
+function RejectedCard({
+  notif,
+  onDismiss,
+}: {
+  notif: InAppNotif;
+  onDismiss: () => void;
+}) {
+  const [, navigate] = useLocation();
+  const d = notif.data ?? {};
+  const isCancelled = notif.type === "subscription_cancelled";
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm" onClick={onDismiss} />
+      <div className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md px-4" dir="rtl">
+        <div
+          className="relative rounded-2xl overflow-hidden shadow-2xl shadow-black/70"
+          style={{ background: "rgba(18,5,5,0.98)" }}
+        >
+          {/* Top glow bar */}
+          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-rose-500 to-transparent" />
+
+          {/* Hero section */}
+          <div
+            className="relative px-6 pt-8 pb-5 flex flex-col items-center text-center gap-1"
+            style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(244,63,94,0.10) 0%, transparent 70%)" }}
+          >
+            {/* Close */}
+            <button
+              onClick={onDismiss}
+              className="absolute top-4 left-4 w-7 h-7 rounded-full flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/10 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Icon */}
+            <div className="w-20 h-20 rounded-2xl bg-rose-500/15 border border-rose-400/25 flex items-center justify-center mb-2">
+              <X className="w-9 h-9 text-rose-400" strokeWidth={1.5} />
+            </div>
+
+            <h3 className="text-xl font-bold text-rose-300 leading-snug">
+              {isCancelled ? "تم إلغاء اشتراكك" : "طلب الاشتراك لم يُقبل"}
+            </h3>
+            <p className="text-sm text-white/45 mt-0.5">
+              {isCancelled
+                ? "تم إلغاء اشتراكك من قِبل المشرف"
+                : "يمكنك إعادة إرسال الطلب أو التواصل مع الدعم"}
+            </p>
+          </div>
+
+          {/* Details */}
+          {(d.subjectName || d.planLabel) && (
+            <div className="px-6 pb-2">
+              <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 divide-y divide-rose-500/10">
+                {d.subjectName && (
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <span className="text-xs text-white/40 flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5" /> التخصص
+                    </span>
+                    <span className="text-sm font-semibold text-white">{d.subjectName}</span>
+                  </div>
+                )}
+                {d.planLabel && (
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <span className="text-xs text-white/40 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" /> الباقة
+                    </span>
+                    <span className="text-sm font-semibold text-rose-300">{d.planLabel}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="px-6 pt-4 pb-6 flex flex-col gap-2">
+            <button
+              onClick={() => { navigate("/subscription"); onDismiss(); }}
+              className="w-full py-3 rounded-xl bg-rose-500/15 border border-rose-400/30 text-rose-300 font-bold text-sm hover:bg-rose-500/25 transition-colors"
+            >
+              {isCancelled ? "عرض الباقات" : "إعادة إرسال الطلب"}
+            </button>
+            <button
+              onClick={onDismiss}
+              className="w-full py-2.5 rounded-xl text-xs text-white/35 hover:text-white/55 transition-colors"
+            >
+              إغلاق
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Generic notification card ─────────────────────────────────────────────────
 function GenericCard({
   notif,
@@ -271,15 +367,12 @@ export function InAppNotifications() {
   const current = queue[0];
   if (!user || !current) return null;
 
-  const isSubscription = current.type === "subscription_approved";
+  if (current.type === "subscription_approved") {
+    return <SubscriptionCard notif={current} onDismiss={() => dismiss(current.id)} />;
+  }
 
-  if (isSubscription) {
-    return (
-      <SubscriptionCard
-        notif={current}
-        onDismiss={() => dismiss(current.id)}
-      />
-    );
+  if (current.type === "subscription_rejected" || current.type === "subscription_cancelled") {
+    return <RejectedCard notif={current} onDismiss={() => dismiss(current.id)} />;
   }
 
   return (
