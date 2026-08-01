@@ -226,7 +226,7 @@ router.post("/v4/unit-quizzes/generate", requireAuth, async (req: Request, res: 
   // 3. Generate via AI (validates internally; throws on failure)
   let htmlContent: string;
   try {
-    htmlContent = await generateUnitQuizHtml(unitContent);
+    htmlContent = await generateUnitQuizHtml(unitContent, unitCode, specialtySlug);
   } catch (err: any) {
     logger.error({ err: err?.message }, "unit-quiz generate: AI failed");
     if (err instanceof GenerateGeminiError && err.creditsExhausted) {

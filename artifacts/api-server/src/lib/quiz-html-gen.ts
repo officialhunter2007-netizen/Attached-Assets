@@ -462,74 +462,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 
 <div class="container" id="quizContainer">
 <!-- QUESTION_CARDS_START -->
-<!-- AI: Insert exactly ${totalQuestions} question cards here.
-     Available types — use EXACT HTML structure shown below.
-     Replace N with the question number (1, 2, 3…).
-
-━━ MCQ (اختيار من متعدد) ━━
-<div class="q-card" data-qid="N" data-type="mcq" data-points="${ptsEach}">
-  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">اختيار من متعدد</span><span class="q-points">${ptsEach} نقاط</span></div>
-  <div class="q-text">نص السؤال</div>
-  <div class="options">
-    <label class="option"><input type="radio" name="qN" value="a"><span class="option-letter">أ</span>الخيار أ</label>
-    <label class="option"><input type="radio" name="qN" value="b"><span class="option-letter">ب</span>الخيار ب</label>
-    <label class="option"><input type="radio" name="qN" value="c"><span class="option-letter">ج</span>الخيار ج</label>
-    <label class="option"><input type="radio" name="qN" value="d"><span class="option-letter">د</span>الخيار د</label>
-  </div>
-  <div class="q-feedback"></div>
-</div>
-
-━━ T/F (صح / خطأ) ━━
-<div class="q-card" data-qid="N" data-type="tf" data-points="${ptsEach}">
-  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">صح / خطأ</span><span class="q-points">${ptsEach} نقاط</span></div>
-  <div class="q-text">العبارة هنا</div>
-  <div class="tf-row">
-    <button class="tf-btn" data-val="true" onclick="selectTF(this,N)">✓ صح</button>
-    <button class="tf-btn" data-val="false" onclick="selectTF(this,N)">✗ خطأ</button>
-  </div>
-  <div class="q-feedback"></div>
-</div>
-
-━━ Fill (أكمل الفراغ) ━━
-<div class="q-card" data-qid="N" data-type="fill" data-points="${ptsEach}">
-  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">أكمل الفراغ</span><span class="q-points">${ptsEach} نقاط</span></div>
-  <div class="q-text">السؤال مع ___ للفراغ</div>
-  <input class="fill-input" id="fill-qN" type="text" placeholder="اكتب إجابتك هنا" autocomplete="off">
-  <div class="q-feedback"></div>
-</div>
-
-━━ Match (مطابقة) — IMPORTANT: selects MUST use id="match-qN-a", "match-qN-b", etc. ━━
-<div class="q-card" data-qid="N" data-type="match" data-points="${ptsEach}">
-  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">مطابقة</span><span class="q-points">${ptsEach} نقاط</span></div>
-  <div class="q-text">طابق كل عنصر بمقابله الصحيح:</div>
-  <div class="match-grid" id="match-qN">
-    <div class="match-left">العنصر أ</div><div class="match-arrow">←</div>
-    <select class="match-select" id="match-qN-a"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
-    <div class="match-left">العنصر ب</div><div class="match-arrow">←</div>
-    <select class="match-select" id="match-qN-b"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
-    <div class="match-left">العنصر ج</div><div class="match-arrow">←</div>
-    <select class="match-select" id="match-qN-c"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
-    <div class="match-left">العنصر د</div><div class="match-arrow">←</div>
-    <select class="match-select" id="match-qN-d"><option value="">اختر...</option><option value="v1">خيار 1</option><option value="v2">خيار 2</option><option value="v3">خيار 3</option><option value="v4">خيار 4</option></select>
-  </div>
-  <div class="q-feedback"></div>
-</div>
-CORRECT["N"] = { type:"match", ans:{a:"v3",b:"v1",c:"v4",d:"v2"}, fb_ok:"...", fb_err:"..." };
-
-━━ Sort (ترتيب خطوات) — IMPORTANT: list id MUST be "sort-qN"; data-order = correct position 1,2,3,4 ━━
-<div class="q-card" data-qid="N" data-type="sort" data-points="${ptsEach}">
-  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">ترتيب الخطوات</span><span class="q-points">${ptsEach} نقاط</span></div>
-  <div class="q-text">رتّب الخطوات التالية بالترتيب الصحيح (اسحب لإعادة الترتيب):</div>
-  <div class="sort-list" id="sort-qN">
-    <div class="sort-item" draggable="true" data-order="3"><span class="drag-handle">⠿</span>الخطوة الثالثة</div>
-    <div class="sort-item" draggable="true" data-order="1"><span class="drag-handle">⠿</span>الخطوة الأولى</div>
-    <div class="sort-item" draggable="true" data-order="4"><span class="drag-handle">⠿</span>الخطوة الرابعة</div>
-    <div class="sort-item" draggable="true" data-order="2"><span class="drag-handle">⠿</span>الخطوة الثانية</div>
-  </div>
-  <div class="q-feedback"></div>
-</div>
-CORRECT["N"] = { type:"sort", ans:["1","2","3","4"], fb_ok:"...", fb_err:"..." };
--->
 <!-- QUESTION_CARDS_END -->
 
   <div class="submit-wrap">
@@ -831,34 +763,6 @@ export function buildStageContentSummary(stage: StageContent): string {
   return s;
 }
 
-// ─── AI quiz generation ───────────────────────────────────────────────────────
-
-const UNIT_QUIZ_SYSTEM_PROMPT =
-  `أنت خبير تصميم اختبارات للمنصة التعليمية نُخبة. مهمتك توليد ملف HTML كامل لاختبار وحدة دراسية.
-قواعد صارمة (الإخلال بها يُبطل الاختبار):
-1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة، لا نص قبله أبداً.
-2. استخدم القالب المُرفق بالضبط (CSS + JS كاملَين). لا تحذف منه ولا تعدّل CSS أو JS.
-3. 10 أسئلة بالضبط بالتوزيع: 4 اختيار من متعدد + 2 صح/خطأ + 2 أكمل الفراغ + 1 مطابقة + 1 ترتيب خطوات. كل سؤال = 10 نقاط.
-4. ضع عنوان الاختبار في <title> بالتنسيق: "رمز الوحدة · اسم التخصص | اسم الوحدة"  (مثال: "1.1.1 · uni-it | المنطق الرقمي").
-5. الأسئلة تختبر الفهم والتطبيق، لا الحفظ الحرفي. استخدم كود أو أرقاماً حيثما كان مناسباً.
-6. أكمل كائن CORRECT بجميع الأجوبة الصحيحة وتغذية راجعة واضحة بالعربية.
-   - match: { type:"match", ans:{a:"val",b:"val",c:"val",d:"val"}, fb_ok:"...", fb_err:"..." }
-   - sort:  { type:"sort",  ans:["1","2","3","4"], fb_ok:"...", fb_err:"..." }
-7. match: selects MUST use id="match-qN-a", "match-qN-b", إلخ داخل div id="match-qN".
-8. sort:  list MUST use id="sort-qN"؛ كل item يحمل data-order = رقمه الصحيح (1,2,3,4) ويُعرض في ترتيب مختلط.
-9. window.submitScore(total) تُستدعى تلقائياً — لا تغيّرها أبداً.`;
-
-const STAGE_QUIZ_SYSTEM_PROMPT =
-  `أنت خبير تصميم اختبارات للمنصة التعليمية نُخبة. مهمتك توليد ملف HTML كامل لاختبار مرحلة دراسية كاملة.
-قواعد صارمة (الإخلال بها يُبطل الاختبار):
-1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة، لا نص قبله أبداً.
-2. استخدم القالب المُرفق بالضبط (CSS + JS كاملَين). لا تحذف منه ولا تعدّل CSS أو JS.
-3. 20 سؤالاً بالضبط: 8 اختيار من متعدد + 6 صح/خطأ + 6 أكمل الفراغ. كل سؤال = 5 نقاط.
-4. ضع عنوان الاختبار في <title> بالتنسيق: "اختبار المرحلة | اسم المرحلة".
-5. الأسئلة سهلة إلى متوسطة — موزعة بالتساوي على جميع وحدات المرحلة.
-6. أكمل كائن CORRECT بالأجوبة الصحيحة وتغذية راجعة مفيدة عربية.
-7. window.submitScore(total) تُستدعى تلقائياً — لا تغيّرها أبداً.`;
-
 // ─── Level content extraction ─────────────────────────────────────────────────
 
 /**
@@ -932,46 +836,322 @@ export function buildLevelContentSummary(level: LevelContent): string {
   return s;
 }
 
-async function callAiAndExtractHtml(
+// ─── QUIZ_MODEL: DeepSeek R1 (latest) via OpenRouter ─────────────────────────
+const QUIZ_MODEL = "deepseek/deepseek-r1-0528";
+
+// ─── Structured output approach ───────────────────────────────────────────────
+//
+// The AI is never given the full HTML template to fill in. Instead it generates
+// ONLY two XML-tagged blocks:
+//
+//   <QUESTIONS>…question card HTML…</QUESTIONS>
+//   <CORRECT>…{"1":{…},"2":{…},…}…</CORRECT>
+//
+// The server then injects these into the fixed template (buildQuizHtmlTemplate).
+// This guarantees window.submitScore and all JS logic is ALWAYS present.
+
+async function callAiGenerateAndInject(
   systemPrompt: string,
   userPrompt: string,
   totalQuestions: number,
+  title: string,
   logTag: string
 ): Promise<string> {
-  // Scale output tokens with quiz length: 10→10K, 20→18K, 30→26K
-  const maxTokens = totalQuestions <= 10 ? 10_000 : totalQuestions <= 20 ? 18_000 : 26_000;
+  const maxTokens = totalQuestions <= 10 ? 8_000 : totalQuestions <= 20 ? 16_000 : 24_000;
 
   const result = await generateGemini({
     systemPrompt,
     userParts: [{ type: "text", text: userPrompt }],
-    model: "gemini-2.5-flash",
-    temperature: 0.6,
+    model: QUIZ_MODEL,
+    temperature: 0.5,
     maxOutputTokens: maxTokens,
-    timeoutMs: 180_000,
+    timeoutMs: 210_000,
     logTag,
   });
 
-  let html = result.text.trim();
+  const raw = result.text.trim();
 
-  // Strip markdown fences if the model wrapped the output
-  const fenceMatch = html.match(/```(?:html)?\s*([\s\S]*?)```/i);
-  if (fenceMatch) html = fenceMatch[1].trim();
+  // ── Extract <QUESTIONS> block ─────────────────────────────────────────────
+  const questionsMatch = raw.match(/<QUESTIONS>([\s\S]*?)<\/QUESTIONS>/i);
+  if (!questionsMatch) {
+    throw new Error("AI_PARSE: missing <QUESTIONS> block in response");
+  }
+  const questionCards = questionsMatch[1].trim();
 
-  // If model prefixed with explanation text, skip to DOCTYPE
-  const doctypeIdx = html.search(/<!doctype\s+html/i);
-  if (doctypeIdx > 0) html = html.slice(doctypeIdx);
+  // ── Extract <CORRECT> block ───────────────────────────────────────────────
+  const correctMatch = raw.match(/<CORRECT>([\s\S]*?)<\/CORRECT>/i);
+  if (!correctMatch) {
+    throw new Error("AI_PARSE: missing <CORRECT> block in response");
+  }
+  let correctStr = correctMatch[1].trim();
+  // Strip optional markdown fences the model may wrap around JSON
+  correctStr = correctStr.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+
+  let correctObj: unknown;
+  try {
+    correctObj = JSON.parse(correctStr);
+  } catch (e: any) {
+    throw new Error(`AI_PARSE: CORRECT JSON invalid — ${e?.message}`);
+  }
+
+  // ── Build fixed template + inject ─────────────────────────────────────────
+  let html = buildQuizHtmlTemplate(totalQuestions);
+
+  // Set the page title
+  html = html.replace(/<title>اختبار<\/title>/, `<title>${title}</title>`);
+
+  // Inject question cards between the slot markers
+  html = html.replace(
+    /<!-- QUESTION_CARDS_START -->[\s\S]*?<!-- QUESTION_CARDS_END -->/,
+    `<!-- QUESTION_CARDS_START -->\n${questionCards}\n<!-- QUESTION_CARDS_END -->`
+  );
+
+  // Inject the CORRECT object (replace the empty placeholder `const CORRECT={\n};`)
+  html = html.replace(
+    /const CORRECT=\{\s*\};/,
+    `const CORRECT=${JSON.stringify(correctObj)};`
+  );
 
   return html;
 }
 
-/** Generate and validate a 10-question unit quiz HTML page. */
-export async function generateUnitQuizHtml(unit: UnitContent): Promise<string> {
-  const template = buildQuizHtmlTemplate(10);
-  const contentSummary = buildUnitContentSummary(unit);
-  const userPrompt =
-    `محتوى الوحدة الدراسية:\n${contentSummary}\n\nالقالب الكامل (أضف الأسئلة داخله):\n${template}`;
+// ─── Unit quiz system prompt ──────────────────────────────────────────────────
 
-  const html = await callAiAndExtractHtml(UNIT_QUIZ_SYSTEM_PROMPT, userPrompt, 10, "unit-quiz-gen");
+const UNIT_QUIZ_SYSTEM_PROMPT = `أنت مصمم اختبارات لمنصة نُخبة التعليمية.
+أنشئ اختبار وحدة دراسية (10 أسئلة، كل سؤال = 10 نقاط).
+
+التوزيع الإلزامي:
+• 4 اختيار من متعدد  (mcq)
+• 2 صح / خطأ         (tf)
+• 2 أكمل الفراغ      (fill)
+• 1 مطابقة           (match)
+• 1 ترتيب خطوات      (sort)
+
+أخرج بالتنسيق التالي بالضبط، ولا شيء خارجه:
+
+<QUESTIONS>
+[بطاقات الأسئلة HTML هنا]
+</QUESTIONS>
+<CORRECT>
+{"1":{…},"2":{…},…,"10":{…}}
+</CORRECT>
+
+━━ هياكل HTML المسموح بها ━━
+
+MCQ — استبدل N برقم السؤال:
+<div class="q-card" data-qid="N" data-type="mcq" data-points="10">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">اختيار من متعدد</span><span class="q-points">10 نقاط</span></div>
+  <div class="q-text">نص السؤال</div>
+  <div class="options">
+    <label class="option"><input type="radio" name="qN" value="a"><span class="option-letter">أ</span>الخيار أ</label>
+    <label class="option"><input type="radio" name="qN" value="b"><span class="option-letter">ب</span>الخيار ب</label>
+    <label class="option"><input type="radio" name="qN" value="c"><span class="option-letter">ج</span>الخيار ج</label>
+    <label class="option"><input type="radio" name="qN" value="d"><span class="option-letter">د</span>الخيار د</label>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "a", "fb_ok": "شرح قصير للإجابة الصحيحة", "fb_err": "شرح التصحيح مع الإجابة الصحيحة" }
+
+T/F:
+<div class="q-card" data-qid="N" data-type="tf" data-points="10">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">صح / خطأ</span><span class="q-points">10 نقاط</span></div>
+  <div class="q-text">العبارة</div>
+  <div class="tf-row">
+    <button class="tf-btn" data-val="true" onclick="selectTF(this,N)">✓ صح</button>
+    <button class="tf-btn" data-val="false" onclick="selectTF(this,N)">✗ خطأ</button>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "true", "fb_ok": "…", "fb_err": "…" }
+
+Fill:
+<div class="q-card" data-qid="N" data-type="fill" data-points="10">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">أكمل الفراغ</span><span class="q-points">10 نقاط</span></div>
+  <div class="q-text">نص السؤال مع ___ للفراغ</div>
+  <input class="fill-input" id="fill-qN" type="text" placeholder="اكتب إجابتك هنا" autocomplete="off">
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "الكلمة", "fb_ok": "…", "fb_err": "…" }
+
+Match — المهم: id القوائم يجب أن يكون match-qN-a, match-qN-b, match-qN-c, match-qN-d (حيث N رقم السؤال):
+<div class="q-card" data-qid="N" data-type="match" data-points="10">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">مطابقة</span><span class="q-points">10 نقاط</span></div>
+  <div class="q-text">طابق كل عنصر بمقابله الصحيح:</div>
+  <div class="match-grid" id="match-qN">
+    <div class="match-left">العنصر 1</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-a"><option value="">اختر...</option><option value="v1">وصف 1</option><option value="v2">وصف 2</option><option value="v3">وصف 3</option><option value="v4">وصف 4</option></select>
+    <div class="match-left">العنصر 2</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-b"><option value="">اختر...</option><option value="v1">وصف 1</option><option value="v2">وصف 2</option><option value="v3">وصف 3</option><option value="v4">وصف 4</option></select>
+    <div class="match-left">العنصر 3</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-c"><option value="">اختر...</option><option value="v1">وصف 1</option><option value="v2">وصف 2</option><option value="v3">وصف 3</option><option value="v4">وصف 4</option></select>
+    <div class="match-left">العنصر 4</div><div class="match-arrow">←</div>
+    <select class="match-select" id="match-qN-d"><option value="">اختر...</option><option value="v1">وصف 1</option><option value="v2">وصف 2</option><option value="v3">وصف 3</option><option value="v4">وصف 4</option></select>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "type": "match", "ans": {"a":"v3","b":"v1","c":"v4","d":"v2"}, "fb_ok": "…", "fb_err": "…" }
+
+Sort — المهم: id القائمة يجب أن يكون sort-qN؛ data-order = الترتيب الصحيح للعنصر (1,2,3,4)؛ اعرض العناصر بترتيب مختلط:
+<div class="q-card" data-qid="N" data-type="sort" data-points="10">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">ترتيب الخطوات</span><span class="q-points">10 نقاط</span></div>
+  <div class="q-text">رتّب الخطوات التالية بالترتيب الصحيح (اسحب لإعادة الترتيب):</div>
+  <div class="sort-list" id="sort-qN">
+    <div class="sort-item" draggable="true" data-order="3"><span class="drag-handle">⠿</span>الخطوة الثالثة</div>
+    <div class="sort-item" draggable="true" data-order="1"><span class="drag-handle">⠿</span>الخطوة الأولى</div>
+    <div class="sort-item" draggable="true" data-order="4"><span class="drag-handle">⠿</span>الخطوة الرابعة</div>
+    <div class="sort-item" draggable="true" data-order="2"><span class="drag-handle">⠿</span>الخطوة الثانية</div>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "type": "sort", "ans": ["1","2","3","4"], "fb_ok": "…", "fb_err": "…" }
+
+قواعد عامة:
+• الأسئلة تختبر الفهم والتطبيق لا الحفظ الحرفي.
+• استخدم code blocks بـ <code>…</code> عند ذكر أوامر أو قيم رقمية.
+• التغذية الراجعة مفيدة وواضحة بالعربية.
+• أرقام الأسئلة من 1 إلى 10 تسلسلياً.`;
+
+// ─── Stage quiz system prompt ─────────────────────────────────────────────────
+
+const STAGE_QUIZ_SYSTEM_PROMPT = `أنت مصمم اختبارات لمنصة نُخبة التعليمية.
+أنشئ اختبار مرحلة دراسية (20 سؤالاً، كل سؤال = 5 نقاط).
+
+التوزيع الإلزامي:
+• 8 اختيار من متعدد  (mcq)
+• 6 صح / خطأ         (tf)
+• 6 أكمل الفراغ      (fill)
+
+أخرج بالتنسيق التالي بالضبط، ولا شيء خارجه:
+
+<QUESTIONS>
+[بطاقات الأسئلة HTML هنا]
+</QUESTIONS>
+<CORRECT>
+{"1":{…},"2":{…},…,"20":{…}}
+</CORRECT>
+
+━━ هياكل HTML المسموح بها ━━
+
+MCQ (data-points="5"):
+<div class="q-card" data-qid="N" data-type="mcq" data-points="5">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">اختيار من متعدد</span><span class="q-points">5 نقاط</span></div>
+  <div class="q-text">نص السؤال</div>
+  <div class="options">
+    <label class="option"><input type="radio" name="qN" value="a"><span class="option-letter">أ</span>الخيار أ</label>
+    <label class="option"><input type="radio" name="qN" value="b"><span class="option-letter">ب</span>الخيار ب</label>
+    <label class="option"><input type="radio" name="qN" value="c"><span class="option-letter">ج</span>الخيار ج</label>
+    <label class="option"><input type="radio" name="qN" value="d"><span class="option-letter">د</span>الخيار د</label>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "b", "fb_ok": "…", "fb_err": "…" }
+
+T/F (data-points="5"):
+<div class="q-card" data-qid="N" data-type="tf" data-points="5">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">صح / خطأ</span><span class="q-points">5 نقاط</span></div>
+  <div class="q-text">العبارة</div>
+  <div class="tf-row">
+    <button class="tf-btn" data-val="true" onclick="selectTF(this,N)">✓ صح</button>
+    <button class="tf-btn" data-val="false" onclick="selectTF(this,N)">✗ خطأ</button>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "false", "fb_ok": "…", "fb_err": "…" }
+
+Fill (data-points="5"):
+<div class="q-card" data-qid="N" data-type="fill" data-points="5">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">أكمل الفراغ</span><span class="q-points">5 نقاط</span></div>
+  <div class="q-text">نص السؤال مع ___ للفراغ</div>
+  <input class="fill-input" id="fill-qN" type="text" placeholder="اكتب إجابتك هنا" autocomplete="off">
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "الكلمة", "fb_ok": "…", "fb_err": "…" }
+
+قواعد عامة:
+• الأسئلة سهلة إلى متوسطة — موزعة بالتساوي على جميع وحدات المرحلة.
+• أرقام الأسئلة من 1 إلى 20 تسلسلياً.`;
+
+// ─── Level quiz system prompt ─────────────────────────────────────────────────
+
+const LEVEL_QUIZ_SYSTEM_PROMPT = `أنت مصمم اختبارات لمنصة نُخبة التعليمية.
+أنشئ اختبار مستوى دراسي شامل (30 سؤالاً، المجموع = 100 نقطة بالضبط).
+
+التوزيع الإلزامي بالنقاط:
+• 10 اختيار من متعدد → data-points="5"  (10 × 5 = 50 نقطة)
+• 10 صح / خطأ        → data-points="3"  (10 × 3 = 30 نقطة)
+• 10 أكمل الفراغ     → data-points="2"  (10 × 2 = 20 نقطة)
+
+أخرج بالتنسيق التالي بالضبط، ولا شيء خارجه:
+
+<QUESTIONS>
+[بطاقات الأسئلة HTML هنا]
+</QUESTIONS>
+<CORRECT>
+{"1":{…},"2":{…},…,"30":{…}}
+</CORRECT>
+
+━━ هياكل HTML المسموح بها ━━
+
+MCQ (data-points="5"):
+<div class="q-card" data-qid="N" data-type="mcq" data-points="5">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">اختيار من متعدد</span><span class="q-points">5 نقاط</span></div>
+  <div class="q-text">نص السؤال</div>
+  <div class="options">
+    <label class="option"><input type="radio" name="qN" value="a"><span class="option-letter">أ</span>الخيار أ</label>
+    <label class="option"><input type="radio" name="qN" value="b"><span class="option-letter">ب</span>الخيار ب</label>
+    <label class="option"><input type="radio" name="qN" value="c"><span class="option-letter">ج</span>الخيار ج</label>
+    <label class="option"><input type="radio" name="qN" value="d"><span class="option-letter">د</span>الخيار د</label>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "c", "fb_ok": "…", "fb_err": "…" }
+
+T/F (data-points="3"):
+<div class="q-card" data-qid="N" data-type="tf" data-points="3">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">صح / خطأ</span><span class="q-points">3 نقاط</span></div>
+  <div class="q-text">العبارة</div>
+  <div class="tf-row">
+    <button class="tf-btn" data-val="true" onclick="selectTF(this,N)">✓ صح</button>
+    <button class="tf-btn" data-val="false" onclick="selectTF(this,N)">✗ خطأ</button>
+  </div>
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "true", "fb_ok": "…", "fb_err": "…" }
+
+Fill (data-points="2"):
+<div class="q-card" data-qid="N" data-type="fill" data-points="2">
+  <div class="q-meta"><span class="q-num">0N</span><span class="q-type">أكمل الفراغ</span><span class="q-points">2 نقاط</span></div>
+  <div class="q-text">نص السؤال مع ___ للفراغ</div>
+  <input class="fill-input" id="fill-qN" type="text" placeholder="اكتب إجابتك هنا" autocomplete="off">
+  <div class="q-feedback"></div>
+</div>
+CORRECT entry: "N": { "ans": "الكلمة", "fb_ok": "…", "fb_err": "…" }
+
+قواعد عامة:
+• الأسئلة سهلة إلى متوسطة — موزعة بالتساوي على مراحل المستوى.
+• data-points إلزامية على كل بطاقة بالقيم المحددة أعلاه.
+• أرقام الأسئلة من 1 إلى 30 تسلسلياً.`;
+
+// ─── Public generate functions ────────────────────────────────────────────────
+
+/** Generate and validate a 10-question unit quiz HTML page. */
+export async function generateUnitQuizHtml(
+  unit: UnitContent,
+  unitCode: string = "",
+  specialtySlug: string = ""
+): Promise<string> {
+  const contentSummary = buildUnitContentSummary(unit);
+  const userPrompt = `محتوى الوحدة الدراسية:\n${contentSummary}`;
+  const badge = [unitCode, specialtySlug].filter(Boolean).join(" · ");
+  const title = badge ? `${badge} | ${unit.name}` : unit.name;
+
+  const html = await callAiGenerateAndInject(
+    UNIT_QUIZ_SYSTEM_PROMPT,
+    userPrompt,
+    10,
+    title,
+    "unit-quiz-gen"
+  );
 
   const check = validateQuizHtml(html);
   if (!check.valid) throw new Error(`validation_failed: ${check.error}`);
@@ -980,46 +1160,36 @@ export async function generateUnitQuizHtml(unit: UnitContent): Promise<string> {
 
 /** Generate and validate a 20-question stage quiz HTML page. */
 export async function generateStageQuizHtml(stage: StageContent): Promise<string> {
-  const template = buildQuizHtmlTemplate(20);
   const contentSummary = buildStageContentSummary(stage);
-  const userPrompt =
-    `محتوى المرحلة الدراسية:\n${contentSummary}\n\nالقالب الكامل (أضف الأسئلة الـ 20 داخله):\n${template}`;
+  const userPrompt = `محتوى المرحلة الدراسية:\n${contentSummary}`;
+  const title = `اختبار المرحلة | ${stage.name}`;
 
-  const html = await callAiAndExtractHtml(STAGE_QUIZ_SYSTEM_PROMPT, userPrompt, 20, "stage-quiz-gen");
+  const html = await callAiGenerateAndInject(
+    STAGE_QUIZ_SYSTEM_PROMPT,
+    userPrompt,
+    20,
+    title,
+    "stage-quiz-gen"
+  );
 
   const check = validateQuizHtml(html);
   if (!check.valid) throw new Error(`validation_failed: ${check.error}`);
   return html;
 }
 
-// ─── Level quiz (30 questions, mixed points → exactly 100) ───────────────────
-// Breakdown: 10 MCQ × 5 pts = 50 | 10 T/F × 3 pts = 30 | 10 Fill × 2 pts = 20
-
-const LEVEL_QUIZ_SYSTEM_PROMPT =
-  `أنت خبير تصميم اختبارات للمنصة التعليمية نُخبة. مهمتك توليد ملف HTML كامل لاختبار مستوى دراسي كامل.
-قواعد صارمة (الإخلال بها يُبطل الاختبار):
-1. الناتج HTML خام فقط — ابدأ بـ <!DOCTYPE html> مباشرة، لا نص قبله أبداً.
-2. استخدم القالب المُرفق بالضبط (CSS + JS كاملَين). لا تحذف منه ولا تعدّل CSS أو JS.
-3. 30 سؤالاً بالضبط — التوزيع الإلزامي بالنقاط:
-   • 10 أسئلة اختيار من متعدد  → data-points="5"  (10 × 5 = 50 نقطة)
-   • 10 أسئلة صح / خطأ        → data-points="3"  (10 × 3 = 30 نقطة)
-   • 10 أسئلة أكمل الفراغ     → data-points="2"  (10 × 2 = 20 نقطة)
-   المجموع = 100 نقطة بالضبط.
-4. data-points مطلوبة على كل بطاقة — البرمجة تقرأها لحساب الدرجة.
-5. وزّع الأسئلة بالتساوي على جميع مراحل المستوى.
-6. ضع عنوان الاختبار في <title> بالتنسيق: "اختبار المستوى | اسم المستوى".
-7. الأسئلة سهلة إلى متوسطة — المفاهيم الأساسية والأهداف الجوهرية.
-8. أكمل كائن CORRECT بالأجوبة الصحيحة وتغذية راجعة مفيدة وواضحة بالعربية.
-9. window.submitScore(total) تُستدعى تلقائياً في showResult — لا تغيّرها.`;
-
 /** Generate and validate a 30-question level quiz HTML page (mixed point weights, total = 100). */
 export async function generateLevelQuizHtml(level: LevelContent): Promise<string> {
-  const template = buildQuizHtmlTemplate(30);
   const contentSummary = buildLevelContentSummary(level);
-  const userPrompt =
-    `محتوى المستوى الدراسي:\n${contentSummary}\n\nالقالب الكامل (أضف الأسئلة الـ 30 داخله — تذكر data-points لكل بطاقة):\n${template}`;
+  const userPrompt = `محتوى المستوى الدراسي:\n${contentSummary}`;
+  const title = `اختبار المستوى | ${level.name}`;
 
-  const html = await callAiAndExtractHtml(LEVEL_QUIZ_SYSTEM_PROMPT, userPrompt, 30, "level-quiz-gen");
+  const html = await callAiGenerateAndInject(
+    LEVEL_QUIZ_SYSTEM_PROMPT,
+    userPrompt,
+    30,
+    title,
+    "level-quiz-gen"
+  );
 
   const check = validateQuizHtml(html);
   if (!check.valid) throw new Error(`validation_failed: ${check.error}`);
