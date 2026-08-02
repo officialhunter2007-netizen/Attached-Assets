@@ -65,6 +65,7 @@ export const OR_PICKER_MODELS: Record<string, string> = {
   "": "Gemini 2.5 Flash Lite (الافتراضي)",
   "google/gemini-2.5-flash": "Gemini 2.5 Flash",
   "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
+  "v0/v0-pro": "v0 Pro (توليد كود)",
 };
 
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -136,6 +137,24 @@ export async function getTeacherProviderOverride(): Promise<TeacherProviderOverr
   // ── 1. OpenRouter model picker override ─────────────────────────────────
   const orModelOverride = String(row?.orModelOverride || "").trim();
   if (orModelOverride && orModelOverride in OR_PICKER_MODELS) {
+    // v0 models use their own API (not OpenRouter)
+    if (orModelOverride.startsWith("v0/")) {
+      const apiKey = String(process.env["V0_API_KEY"] || "").trim();
+      if (!apiKey) {
+        logger.warn?.(
+          { orModelOverride },
+          "[ai-teacher-provider] v0 model selected but V0_API_KEY missing — falling back to default",
+        );
+        return null;
+      }
+      return {
+        endpoint: "https://api.v0.dev/v1/chats",
+        baseUrl: "https://api.v0.dev/v1",
+        apiKey,
+        model: orModelOverride,
+        apiKeyEnv: "V0_API_KEY",
+      };
+    }
     // Non-empty + valid slug → use OpenRouter with the selected model
     const apiKey = String(process.env["OPENROUTER_API_KEY"] || "").trim();
     if (!apiKey) {

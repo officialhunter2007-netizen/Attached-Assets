@@ -74,6 +74,16 @@ const MODEL_OPTIONS: ModelOption[] = [
     icon: <Bot className="w-5 h-5 text-purple-400" />,
     cost: "~3 جم / دور",
   },
+  {
+    slug: "v0/v0-pro",
+    label: "v0 Pro",
+    labelEn: "v0/v0-pro",
+    description: "نموذج v0 من Vercel — متخصص في توليد الأكواد البرمجية. يستخدم API خاص غير متوافق مع OpenRouter.",
+    badge: "Vercel",
+    badgeColor: "bg-sky-500/20 text-sky-300",
+    icon: <Cpu className="w-5 h-5 text-sky-400" />,
+    cost: "~2 جم / دور",
+  },
 ];
 
 export function AdminAiTeacherProvider() {

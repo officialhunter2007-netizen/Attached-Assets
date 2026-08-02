@@ -1,0 +1,23 @@
+- generic [ref=e2]:
+  - generic [ref=e19]:
+    - generic [ref=e20]:
+      - img "شعار نُخبة" [ref=e25]:
+        - generic [ref=e32]: ن
+      - heading "أهلاً بعودتك" [level=1] [ref=e35]
+      - paragraph [ref=e36]: سجّل دخولك لمتابعة رحلة تعلّمك مع معلّمك الذكي
+      - paragraph [ref=e37]: ✨ معلّمك يتذكّر تقدّمك ويعرفك شخصياً
+    - generic [ref=e38]:
+      - textbox "أدخل بريدك الإلكتروني" [ref=e40]
+      - generic [ref=e41]:
+        - textbox "أدخل كلمة المرور" [ref=e42]
+        - button [ref=e43]
+      - button "تسجيل الدخول" [disabled]
+    - generic [ref=e47]: أو
+    - button "تسجيل الدخول بـ Google" [ref=e52]
+    - generic [ref=e53]:
+      - text: ليس لديك حساب؟
+      - link "سجّل الآن مجاناً" [ref=e54] [cursor=pointer]:
+        - /url: /register
+    - generic [ref=e55]: تسجيل دخول آمن عبر Google
+  - region "Notifications (F8)":
+    - list

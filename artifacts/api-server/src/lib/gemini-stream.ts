@@ -552,7 +552,111 @@ async function attemptOpenRouter(args: StreamGeminiArgs, apiKey: string): Promis
 // student-teaching lock is pinned to it.
 const TEACHING_MODEL_LOCK = "gemini-2.5-flash-lite" as const;
 
+/**
+ * v0.dev (Vercel) API — synchronous, non-streaming, non-OpenAI format.
+ * We build a single message from chat history, send it, and simulate SSE
+ * by writing the response through onChunk in one shot.
+ */
+async function runV0Stream(args: StreamGeminiArgs): Promise<StreamGeminiResult> {
+  const apiKey = (process.env.V0_API_KEY ?? "").trim();
+  if (!apiKey) {
+    throw new GeminiAuthError("V0_API_KEY is not set — v0 teaching disabled");
+  }
+
+  // Build a comprehensive message from the system prompt + chat history
+  // v0 only accepts a single "message" string — we pack everything into it
+  const parts: string[] = [];
+
+  // 1. System prompt — the full teaching instructions for this lesson
+  if (args.systemPrompt) {
+    parts.push(`[تعليمات التدريس]\n${args.systemPrompt}`);
+  }
+
+  // 2. Chat history — previous exchanges between student and teacher
+  if (args.messages.length > 1) {
+    const history = args.messages.slice(0, -1).map((m) => {
+      const role = m.role === "assistant" ? "المعلّم" : "الطالب";
+      return `${role}: ${m.content}`;
+    }).join("\n\n");
+    parts.push(`[سجل المحادثة السابق]\n${history}`);
+  }
+
+  // 3. Current student message
+  const lastUserMsg = args.messages[args.messages.length - 1]?.content ?? "";
+  parts.push(`[رسالة الطالب الحالية]\n${lastUserMsg}`);
+
+  const message = parts.join("\n\n---\n\n");
+
+  const modelId = (args.provider ? args.provider.model : args.model).replace("v0/", "");
+
+  console.log(`[v0-stream] → ${modelId}${args.logTag ? ` (tag=${args.logTag})` : ""}`);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  let emittedChunks = false;
+
+  try {
+    const r = await fetch("https://api.v0.dev/v1/chats", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        message,
+        modelConfiguration: { modelId },
+      }),
+      signal: args.signal ?? controller.signal,
+    });
+
+    clearTimeout(timer);
+
+    if (!r.ok) {
+      const errBody = await r.text().catch(() => "");
+      console.warn(`[v0-stream] HTTP ${r.status}: ${errBody.slice(0, 300)}`);
+      throw new GeminiTransientError(`v0 HTTP ${r.status}`, {
+        emittedAnyChunk: false,
+        usageMetadata: null,
+        partialResponseChars: 0,
+      });
+    }
+
+    const json = await r.json();
+    const assistantMsg = json.messages?.find((m: any) => m.role === "assistant");
+    const content = assistantMsg?.content ?? "";
+
+    if (content) {
+      args.onChunk(content);
+      emittedChunks = true;
+    }
+
+    return {
+      fullResponse: content,
+      inputTokens: message.length,
+      outputTokens: content.length,
+      cachedInputTokens: 0,
+      finishReason: "stop",
+      attempts: 1,
+      model: `v0/${modelId}`,
+      channel: "openrouter", // compat
+    };
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err instanceof GeminiError) throw err;
+    throw new GeminiTransientError(
+      err?.name === "AbortError" ? "v0 timed out" : `v0 error: ${err?.message ?? "unknown"}`,
+      { emittedAnyChunk: emittedChunks, usageMetadata: null, partialResponseChars: 0 },
+    );
+  }
+}
+
 export async function streamGeminiTeaching(args: StreamGeminiArgs): Promise<StreamGeminiResult> {
+  // v0 API path — different format, synchronous response, simulate SSE
+  const orModel = args.provider ? args.provider.model : args.model;
+  if (orModel.startsWith("v0/")) {
+    return runV0Stream(args);
+  }
+
   // Custom-provider path: the admin chose the provider + model explicitly,
   // so we bypass the Gemini model lock and use the provider's key directly.
   if (args.provider) {

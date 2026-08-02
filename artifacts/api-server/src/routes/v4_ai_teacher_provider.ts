@@ -171,9 +171,16 @@ router.post("/admin/ai-teacher-provider/test", requireAdmin, requireSameOriginCs
   let model: string;
 
   if (orModelOverride && orModelOverride in OR_PICKER_MODELS) {
-    baseUrl   = "https://openrouter.ai/api/v1";
-    apiKeyEnv = "OPENROUTER_API_KEY";
-    model     = orModelOverride;
+    // v0 models have their own API format (not OpenAI-compatible)
+    if (orModelOverride.startsWith("v0/")) {
+      baseUrl   = "https://api.v0.dev/v1";
+      apiKeyEnv = "V0_API_KEY";
+      model     = orModelOverride.replace("v0/", "");
+    } else {
+      baseUrl   = "https://openrouter.ai/api/v1";
+      apiKeyEnv = "OPENROUTER_API_KEY";
+      model     = orModelOverride;
+    }
   } else {
     baseUrl   = (typeof req.body?.baseUrl    === "string" && req.body.baseUrl.trim())
       ? req.body.baseUrl.trim()   : String(saved?.baseUrl    || "").trim();
@@ -193,24 +200,23 @@ router.post("/admin/ai-teacher-provider/test", requireAdmin, requireSameOriginCs
     return;
   }
 
-  const endpoint = normaliseEndpoint(baseUrl);
+  const isV0 = orModelOverride?.startsWith("v0/");
+  const endpoint = isV0 ? "https://api.v0.dev/v1/chats" : normaliseEndpoint(baseUrl);
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
     let r: globalThis.Response;
     try {
+      const requestBody = isV0
+        ? JSON.stringify({ message: "ping", modelConfiguration: { modelId: model } })
+        : JSON.stringify({ model, messages: [{ role: "user", content: "ping" }], max_tokens: 1, stream: false });
       r = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: "ping" }],
-          max_tokens: 1,
-          stream: false,
-        }),
+        body: requestBody,
         signal: controller.signal,
       });
     } finally {
@@ -230,7 +236,9 @@ router.post("/admin/ai-teacher-provider/test", requireAdmin, requireSameOriginCs
     let parsedOk = false;
     try {
       const j = JSON.parse(text);
-      parsedOk = !!(j && (j.choices || j.id || j.object));
+      parsedOk = isV0
+        ? !!(j && (j.id || j.object || j.messages))
+        : !!(j && (j.choices || j.id || j.object));
     } catch { parsedOk = false; }
     res.status(200).json({ ok: true, status: r.status, parsed: parsedOk, endpoint, model });
   } catch (err: any) {
