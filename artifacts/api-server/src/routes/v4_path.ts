@@ -184,7 +184,26 @@ router.get("/v4/path/:slug/wallet", requireUser, async (req, res) => {
     ]);
     const specialtyName: string = (sp as any)?.name ?? slug;
     const specialtyIcon: string | null = (sp as any)?.icon ?? null;
-    if (!w) {
+    if (!w || (!(w as any).gemsBalance || Number((w as any).gemsBalance) <= 0)) {
+      // Fallback: check the global welcome wallet
+      const [welcomeW] = await db
+        .select()
+        .from(studentGemWalletsTable)
+        .where(and(
+          eq(studentGemWalletsTable.userId, uid),
+          eq(studentGemWalletsTable.subjectId, "_welcome"),
+        ));
+      const welcomeBalance = Number((welcomeW as any)?.gemsBalance ?? 0);
+      if (welcomeBalance > 0) {
+        res.json({
+          exists: true,
+          gemsBalance: welcomeBalance,
+          expiresAt: (welcomeW as any)?.expiresAt ?? null,
+          specialtyName: "🎁 هدية ترحيبية",
+          specialtyIcon: "🎁",
+        });
+        return;
+      }
       res.json({ exists: false, gemsBalance: 0, expiresAt: null, specialtyName, specialtyIcon });
       return;
     }
@@ -1135,7 +1154,7 @@ router.get("/v4/path/:slug/map", requireUser, async (req, res) => {
         return "available";
       }
       if (code === currentCode) return "active";
-      return "locked";
+      return "available";
     }
 
     // ── 5. Build stage tree ───────────────────────────────────────────────

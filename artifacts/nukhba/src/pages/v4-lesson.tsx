@@ -429,6 +429,49 @@ function normalizeFences(src: string): string {
   return out;
 }
 
+/**
+ * Repair code blocks whose body has no (or too few) newlines — the model
+ * frequently emits multi-statement code glued onto one line, e.g.
+ * `def f():    stmt1    stmt2`.  The split-on-backtick approach means we
+ * only touch genuine fenced blocks; prose is never affected.
+ */
+function repairCodeBlockNewlines(src: string): string {
+  if (!src || src.indexOf("```") === -1) return src;
+  const parts = src.split("```");
+  for (let i = 1; i < parts.length; i += 2) {
+    const nl = parts[i].indexOf("\n");
+    if (nl < 0) continue;
+    const lang = parts[i].slice(0, nl).trim().toLowerCase();
+    const code = parts[i].slice(nl + 1);
+
+    // Already has a healthy number of newlines – believe the model.
+    const newlineCount = (code.match(/\n/g) || []).length;
+    if (newlineCount >= 2) continue;
+
+    // At most 1 newline — single-line code block.  Repair.
+    if (lang === "python" || lang === "py") {
+      // Split function/class/if/for/while definitions glued to their body.
+      let fixed = code.replace(/(:[ \t]{2,})(?=[^\s])/g, (_m: string) => ":\n" + _m.slice(1).replace(/^\s+/, "    "));
+      // Split at 4+ spaces between statements on the same indented line.
+      fixed = fixed.replace(/(\S)([ \t]{4,})(?=\S)/g, "$1\n$2");
+      parts[i] = lang + "\n" + fixed;
+    } else if (/^(javascript|js|typescript|ts|java|c|cpp|c\+\+|cs|go|rust|swift|kotlin|dart|php|rb|ruby)$/i.test(lang)) {
+      let fixed = code;
+      fixed = fixed.replace(/;[ \t]+(?=\S)/g, ";\n  ");
+      fixed = fixed.replace(/\{[ \t]+(?=\S)/g, "{\n  ");
+      fixed = fixed.replace(/\}[ \t]+(?=\S)/g, "}\n");
+      parts[i] = lang + "\n" + fixed;
+    } else {
+      // Generic fallback: any spot with 4+ consecutive spaces that sits
+      // between two non-space characters is a likely line boundary.
+      if (newlineCount === 0) {
+        parts[i] = lang + "\n" + code.replace(/(\S)([ \t]{4,})(?=\S)/g, "$1\n$2");
+      }
+    }
+  }
+  return parts.join("```");
+}
+
 // Drop `[[IMAGE:id]]` markers whose PHOTO lookup missed (and an optional caption
 // the teacher wrote right after) BEFORE markdown parsing, so no spinner/figure is
 // ever produced for them — the cleanest, flicker-free way to handle a miss.
@@ -466,7 +509,12 @@ function renderHtml(raw: string, missingImageIds?: Set<string>): string {
   // markdown fences remain, and it is a no-op when none exist.
   const withFences = normalizeFences(withNoise);
 
-  const withNoComments = stripFenceComments(withFences);
+  // Repair code-block bodies that the model collapsed onto a single line
+  // (e.g. `def f():    stmt1    stmt2`).  Only touches blocks with <2 newlines
+  // so properly-formatted code is never altered.
+  const withCodeLines = repairCodeBlockNewlines(withFences);
+
+  const withNoComments = stripFenceComments(withCodeLines);
 
   const withLatinCode = latinizeCodeIdentifiers(withNoComments);
   // extractMathBlocks returns `{ text, blocks }` — destructuring it as
@@ -749,6 +797,7 @@ export default function V4Lesson() {
   const [visualExplainReady, setVisualExplainReady] = useState(false);
   // Pending confirmation before triggering visual explain (shows 50-gem cost warning)
   const [veConfirmMsg, setVeConfirmMsg] = useState<string | null>(null);
+  const veBillingShownRef = useRef(false);
 
   // ── شرح سطر بسطر (line-by-line code explanation drawer) ──────────────────
   type ExplainLine = { n: number; code: string; explanation: string };
@@ -1659,23 +1708,15 @@ export default function V4Lesson() {
             <div className="font-black text-sm truncate">{lessonMeta.name}</div>
           </div>
 
-          {/* Wallet pill */}
-          {walletExists !== null && (
-            <button
-              onClick={() => navigate("/subscription")}
-              title={walletExists ? "رصيد جواهرك في هذا التخصص" : "لا توجد محفظة لهذا التخصص"}
-              className={`flex items-center gap-1.5 text-[11px] rounded-full px-2.5 py-1 border ${
-                walletExists
-                  ? (walletBalance ?? 0) <= 50
-                    ? "bg-rose-500/10 border-rose-400/30 text-rose-200"
-                    : "bg-amber-500/10 border-amber-400/30 text-amber-200"
-                  : "bg-white/5 border-white/10 text-white/60"
-              }`}
-            >
-              <Gem className="w-3.5 h-3.5" />
-              <span className="font-black tabular-nums">{walletBalance ?? 0}</span>
-            </button>
-          )}
+          {/* Wallet pill — always visible, always gold */}
+          <button
+            onClick={() => navigate("/subscription")}
+            title={walletExists ? "رصيد جواهرك" : "لا توجد محفظة"}
+            className="flex items-center gap-1.5 text-[11px] rounded-full px-2.5 py-1 border bg-amber-500/10 border-amber-400/30 text-amber-200"
+          >
+            <Gem className="w-3.5 h-3.5" />
+            <span className="font-black tabular-nums">{(walletBalance ?? 0).toLocaleString("en")}</span>
+          </button>
 
           {/* Nukhba code editor toggle (code-oriented specialties only) */}
           {isProgramming && (
@@ -1851,7 +1892,14 @@ export default function V4Lesson() {
                 }
                 onVisualExplain={
                   m.role === "assistant" && !streaming && m.content.trim() && !m.content.trim().startsWith("⚠️")
-                    ? () => setVeConfirmMsg(m.content)
+                    ? () => {
+                        if (veBillingShownRef.current) {
+                          handleVisualExplain(m.content);
+                        } else {
+                          veBillingShownRef.current = true;
+                          setVeConfirmMsg(m.content);
+                        }
+                      }
                     : undefined
                 }
                 visualExplainEnabled={visualExplainReady}

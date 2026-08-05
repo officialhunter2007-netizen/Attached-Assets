@@ -392,7 +392,8 @@ export default function BookletSession() {
       try {
         const r = await fetch(`/api/v4/booklet/${id}`, { credentials: "include" });
         if (!r.ok) throw new Error(`http_${r.status}`);
-        const data = await r.json();
+        let data: any;
+        try { data = await r.json(); } catch { throw new Error("تعذّر تحميل الملزمة — صيغة الرد غير صالحة"); }
         const b: Booklet = data?.booklet;
         setBooklet(b);
         const focus = new URLSearchParams(window.location.search).get("lesson");
@@ -455,7 +456,11 @@ export default function BookletSession() {
         const d = await startRes.json().catch(() => ({}));
         throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
       }
-      const { jobId } = await startRes.json();
+      let jobId: string;
+      try {
+        const startData = await startRes.json();
+        jobId = startData.jobId;
+      } catch { throw new Error("تعذّر بدء الشرح البصري — رد غير متوقع من الخادم"); }
 
       while (Date.now() < DEADLINE) {
         await new Promise(r => setTimeout(r, POLL_MS));
@@ -464,7 +469,8 @@ export default function BookletSession() {
           const d = await statusRes.json().catch(() => ({}));
           throw new Error(d.error || "تعذّر إنشاء الشرح البصري.");
         }
-        const data = await statusRes.json();
+        let data: any;
+        try { data = await statusRes.json(); } catch { continue; }
         if (data.status === "done")  { setVisualOverlay({ html: data.html, loading: false, error: null }); return; }
         if (data.status === "error") { throw new Error(data.error || "تعذّر إنشاء الشرح البصري."); }
       }

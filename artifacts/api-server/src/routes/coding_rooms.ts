@@ -5,7 +5,7 @@ import { getRoomOnlineCount, isUserOnlineInRoom } from "../lib/coding-room-ws";
 import { chargeV4Ai } from "../lib/v4-gem-wallet";
 import { requireSameOriginCsrf } from "../lib/csrf";
 
-const ROOM_TICK_COST_USD = 0.001; // 1 gem per 2-minute tick
+const ROOM_TICK_COST_USD = 0.002; // 2 gems per minute (fixed rate 1000/USD)
 
 const router = Router();
 
@@ -512,6 +512,7 @@ router.post("/coding-rooms/:roomId/tick", requireUser, requireSameOriginCsrf, as
       subjectId,
       costUsd: ROOM_TICK_COST_USD,
       source: "v4_coding_room",
+      useFixedRate: true,
     });
 
     // Fail-closed on transient DB errors: report retryable failure instead of

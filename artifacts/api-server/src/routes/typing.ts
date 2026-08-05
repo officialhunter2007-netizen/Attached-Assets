@@ -150,9 +150,15 @@ router.post("/typing/charge-lesson", requireUser, requireCsrf, async (req: any, 
       subjectId,
       costUsd: LESSON_COST_USD,
       source: "v4_typing_lesson",
+      useFixedRate: true,
     });
 
     if (charge.error) {
+      res.status(503).json({ error: "تعذّر الخصم مؤقتاً. حاول مجدداً." });
+      return;
+    }
+
+    if (!charge.charged) {
       res.status(402).json({ error: "رصيدك من الجواهر غير كافٍ لإتمام هذا الدرس (4 جواهر)" });
       return;
     }

@@ -106,6 +106,7 @@ router.post("/student/visual-explain/request", async (req: any, res: any): Promi
       subjectId,
       costUsd: VISUAL_EXPLAIN_COST_USD,
       source: "v4_ai_visual",
+      useFixedRate: true,
     });
     if (charge.error) {
       res.status(402).json({ error: "رصيدك من الجواهر غير كافٍ لطلب التوضيح البصري (50 جوهرة)" });

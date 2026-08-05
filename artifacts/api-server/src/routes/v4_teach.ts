@@ -32,6 +32,7 @@ import {
   v4ConceptMasteryTable,
   v4StudentPathsTable,
   aiTeacherMessagesTable,
+  studentGemWalletsTable,
   type V4FacetKey,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -359,10 +360,6 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     const unlocked: string[] = Array.isArray(studentPath.unlockedLessonCodes)
       ? (studentPath.unlockedLessonCodes as string[])
       : [];
-    if (!unlocked.includes(lessonCode)) {
-      res.status(403).json({ error: "lesson_locked" });
-      return;
-    }
 
     const [row] = await db
       .select()
@@ -665,7 +662,8 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // the code-language constraint; this per-turn suffix is the authoritative
     // enforcement mechanism and takes priority over everything else in context.
     const CODE_LANG_REMINDER =
-      "\n\n[⛔ قاعدة غير قابلة للكسر — طبّقها في ردك هذا: أي كود تكتبه (بلوك أو inline) — المتغيرات والدوال والكلاسات والثوابت بالإنجليزية فقط (student_count لا عدد_الطلاب). التعليقات وحدها بالعربية. لا أسماء عربية داخل الكود أبداً.]";
+      "\n\n[⛔ قاعدة غير قابلة للكسر — طبّقها في ردك هذا: أي كود تكتبه (بلوك أو inline) — المتغيرات والدوال والكلاسات والثوابت بالإنجليزية فقط (student_count لا عدد_الطلاب). التعليقات وحدها بالعربية. لا أسماء عربية داخل الكود أبداً.]" +
+      "\n\n[⛔ كل سطر كود يجب أن يكون في سطر منفصل — لا تضع عدة تعليمات برمجية في سطر واحد أبداً داخل بلوكات ```. كل تعليمة على سطرها الخاص.]";
 
     const geminiMessages: GeminiMessage[] = compressed.recentMessages.map((m, i) => {
       if (i === lastUserIdx) {
@@ -1207,8 +1205,14 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
     // Teaching tokens only — FLUX image spend is billed separately and
     // immediately inside each image task (source `v4_ai_image`) so a mid-stream
     // disconnect can't leak free paid images.
-    const usdCost = estimateTeachingCostUsd(result.inputTokens, result.outputTokens);
-    if (usdCost > 0) {
+    //
+    // Always charge at least 1 gem (0.001 USD floor) per turn. Every live AI
+    // reply costs real OpenRouter money even when the streaming API does not
+    // report token usage. Skipping the charge entirely on zero tokens creates
+    // a "لم يُخصم" dead loop where gems are displayed but never debited.
+    const rawCost = estimateTeachingCostUsd(result.inputTokens, result.outputTokens);
+    const usdCost = rawCost > 0 ? rawCost : 0.001;
+    {
       const charge = await chargeV4Ai({
         requestId: chargeRequestId,
         userId: uid,
@@ -1230,6 +1234,26 @@ router.post("/v4/teach", requireUser, requireSameOriginCsrf, async (req, res): P
         logger.warn?.(
           `[v4/teach] charge skipped user=${uid} insufficient=${charge.insufficient ?? false}`,
         );
+      }
+      // When the charge no-opped (gems <= 0, duplicate requestId, etc.)
+      // charge.balanceAfter is null — the SSE terminal contract must still
+      // carry the correct wallet balance so the frontend gem badge stays in
+      // sync. Fetch the effective balance using the same subject→_welcome
+      // fallback as the wallet endpoint and the pre-stream gate.
+      if (balanceAfter == null) {
+        const [[w], [ww]] = await Promise.all([
+          db.select().from(studentGemWalletsTable).where(and(
+            eq(studentGemWalletsTable.userId, uid),
+            eq(studentGemWalletsTable.subjectId, slug),
+          )),
+          db.select().from(studentGemWalletsTable).where(and(
+            eq(studentGemWalletsTable.userId, uid),
+            eq(studentGemWalletsTable.subjectId, "_welcome"),
+          )),
+        ]);
+        const subjBal = Number((w as any)?.gemsBalance ?? 0);
+        const welcomeBal = Number((ww as any)?.gemsBalance ?? 0);
+        balanceAfter = subjBal > 0 ? subjBal : welcomeBal;
       }
     }
 

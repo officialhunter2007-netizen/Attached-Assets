@@ -598,6 +598,7 @@ export default function TypingLesson() {
   type GemModal = { wallets: WalletInfo[]; loading: boolean; error: string | null; charging: boolean; selectedWallet: string | null };
   const [gemModal, setGemModal] = useState<GemModal | null>(null);
   const [pendingResult, setPendingResult] = useState<{ lessonId: number; stars: 1|2|3; wpm: number; accuracy: number } | null>(null);
+  const billingRef = useRef({ shown: false, lastSubjectId: null as string | null });
 
   const [showIntro, setShowIntro] = useState(true);
   const [showTip, setShowTip] = useState(true);
@@ -733,41 +734,54 @@ export default function TypingLesson() {
   }
 
   async function fetchWalletsAndShowModal() {
-    setGemModal({ wallets: [], loading: true, error: null, charging: false, selectedWallet: null });
     try {
       const r = await fetch("/api/typing/wallets", { credentials: "include" });
       if (!r.ok) throw new Error("تعذّر تحميل المحافظ");
       const { wallets }: { wallets: WalletInfo[] } = await r.json();
+
+      // Auto-charge: if billing already shown and there's exactly 1 wallet, skip modal
+      if (billingRef.current.shown && wallets.length === 1 && pendingResult) {
+        const result = pendingResult;
+        setPendingResult(null);
+        await chargeLesson(result.lessonId, result.stars, result.wpm, result.accuracy, wallets[0].subjectId);
+        return;
+      }
+
       const autoSelect = wallets.length === 1 ? wallets[0].subjectId : null;
       setGemModal({ wallets, loading: false, error: null, charging: false, selectedWallet: autoSelect });
+      billingRef.current.shown = true;
     } catch (e: any) {
       setGemModal({ wallets: [], loading: false, error: e?.message ?? "خطأ في تحميل المحافظ", charging: false, selectedWallet: null });
     }
   }
 
-  async function confirmGemCharge() {
-    if (!pendingResult || !gemModal?.selectedWallet) return;
+  async function chargeLesson(lessonId: number, stars: 1|2|3, wpm: number, accuracy: number, subjectId: string) {
     setGemModal(prev => prev ? { ...prev, charging: true, error: null } : null);
     try {
       const r = await fetch("/api/typing/charge-lesson", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Nukhba-Csrf": "1" },
         credentials: "include",
-        body: JSON.stringify({ lessonId: pendingResult.lessonId, subjectId: gemModal.selectedWallet }),
+        body: JSON.stringify({ lessonId, subjectId }),
       });
       const d = await r.json();
       if (!r.ok) {
         setGemModal(prev => prev ? { ...prev, charging: false, error: d.error ?? "فشل الخصم" } : null);
         return;
       }
-      // Charge OK → show completion screen
+      billingRef.current.lastSubjectId = subjectId;
       setGemModal(null);
       setPhase("complete");
-      saveProgress(pendingResult.lessonId, pendingResult.stars, pendingResult.wpm, pendingResult.accuracy);
+      saveProgress(lessonId, stars, wpm, accuracy);
       setPendingResult(null);
-    } catch {
-      setGemModal(prev => prev ? { ...prev, charging: false, error: "خطأ في الاتصال بالخادم" } : null);
+    } catch (e: any) {
+      setGemModal(prev => prev ? { ...prev, charging: false, error: e?.message ?? "خطأ في الشبكة" } : null);
     }
+  }
+
+  async function confirmGemCharge() {
+    if (!pendingResult || !gemModal?.selectedWallet) return;
+    await chargeLesson(pendingResult.lessonId, pendingResult.stars, pendingResult.wpm, pendingResult.accuracy, gemModal.selectedWallet);
   }
 
   if (!lesson) {

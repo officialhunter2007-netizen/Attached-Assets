@@ -7,7 +7,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import {
   Mic, MicOff, MessageSquare, Users, Play, X, Crown,
   ChevronLeft, Download, AlertTriangle, Clock, Check,
-  Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2,
+  Pencil, Plus, Terminal, Eye, ChevronDown, Send, FileCode2, FileText,
   Folder, FolderOpen, Trash2, FolderTree, Square, MoreVertical, FolderPlus,
   RefreshCw, Monitor, Smartphone, Maximize2, ExternalLink, Package,
   HelpCircle, BookOpen, Lightbulb, ChevronRight, Zap, Shield, Info, Gem,
@@ -169,6 +169,13 @@ function isValidPath(path: string): boolean {
   return true;
 }
 
+function isValidPathComponent(name: string): boolean {
+  if (!name || name.length > 100) return false;
+  if (name.includes("/") || name.includes("\\")) return false;
+  if (name === "." || name === "..") return false;
+  return true;
+}
+
 function normalizePath(base: string, ref: string): string {
   let p = ref.trim().replace(/^\.\//, "");
   if (p.startsWith("/")) p = p.slice(1);
@@ -252,22 +259,29 @@ type TreeNode = {
 
 function buildTree(files: FileMeta[]): TreeNode[] {
   const root: TreeNode = { name: "", path: "", isDir: true, children: [] };
+  const dirPaths = new Set<string>();
+
   for (const f of files) {
-    const parts = f.file_path.split("/").filter(Boolean);
+    const isFolder = f.file_path.endsWith("/.folder");
+    // Strip /.folder suffix so the marker itself never becomes a tree node
+    const cleanPath = isFolder ? f.file_path.replace(/\/\.folder$/, "") : f.file_path;
+    const parts = cleanPath.split("/").filter(Boolean);
     let cur = root;
     let acc = "";
     for (let i = 0; i < parts.length; i++) {
       const seg = parts[i];
       acc = acc ? `${acc}/${seg}` : seg;
-      const isLeaf = i === parts.length - 1;
+      const isLeaf = i === parts.length - 1 && !isFolder;
       let node = cur.children.find((c) => c.name === seg && c.isDir === !isLeaf);
       if (!node) {
         node = { name: seg, path: isLeaf ? f.file_path : acc, isDir: !isLeaf, children: [] };
         cur.children.push(node);
       }
+      if (!isLeaf) dirPaths.add(acc);
       cur = node;
     }
   }
+
   const sortRec = (n: TreeNode) => {
     n.children.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
     n.children.forEach(sortRec);
@@ -277,36 +291,58 @@ function buildTree(files: FileMeta[]): TreeNode[] {
 }
 
 function FileTreeNode({
-  node, depth, activeFile, expandedFolders, onToggle, onOpen, onRename, onDelete, canWrite,
+  node, depth, activeFile, expandedFolders, activeFolder, onToggle, onOpen, onRename, onDelete, onDeleteFolder, onContextMenu, onAddFile, canWrite,
 }: {
   node: TreeNode;
   depth: number;
   activeFile: string;
   expandedFolders: Record<string, boolean>;
+  activeFolder: string | null;
   onToggle: (path: string) => void;
   onOpen: (path: string) => void;
   onRename: (path: string) => void;
   onDelete: (path: string) => void;
+  onDeleteFolder: (path: string) => void;
+  onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
+  onAddFile: (folderPath: string) => void;
   canWrite: boolean;
 }) {
   const pad = 8 + depth * 12;
   if (node.isDir) {
     const open = expandedFolders[node.path] ?? true;
+    const isActive = activeFolder === node.path;
     return (
       <div>
-        <button
-          onClick={() => onToggle(node.path)}
-          className="w-full flex items-center gap-1.5 py-1.5 text-[12px] font-medium text-white/60 hover:text-white/90 hover:bg-white/[0.03] transition-colors text-right"
-          style={{ paddingRight: pad, paddingLeft: 8 }}
-        >
-          <ChevronLeft className="w-3 h-3 shrink-0 transition-transform" style={{ transform: open ? "rotate(-90deg)" : "none" }} />
-          {open ? <FolderOpen className="w-3.5 h-3.5 shrink-0 text-amber-400/70" /> : <Folder className="w-3.5 h-3.5 shrink-0 text-amber-400/70" />}
-          <span className="truncate">{node.name}</span>
-        </button>
+        <div className="group flex items-center"
+          onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, true); }}>
+          <button
+            onClick={() => { onToggle(node.path); }}
+            className="flex-1 min-w-0 flex items-center gap-1.5 py-1.5 text-[12px] font-medium transition-colors text-right"
+            style={{ paddingRight: pad, paddingLeft: 8, color: isActive ? "#93C5FD" : "rgba(255,255,255,0.6)", background: isActive ? "rgba(59,130,246,0.08)" : "transparent" }}
+          >
+            <ChevronLeft className="w-3 h-3 shrink-0 transition-transform" style={{ transform: open ? "rotate(-90deg)" : "none" }} />
+            {open ? <FolderOpen className="w-3.5 h-3.5 shrink-0 text-amber-400/70" /> : <Folder className="w-3.5 h-3.5 shrink-0 text-amber-400/70" />}
+            <span className="truncate">{node.name}</span>
+          </button>
+          {canWrite && (
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pl-1.5">
+              <button onClick={() => { onAddFile(node.path); }} title="ملف جديد هنا"
+                className="w-5 h-5 rounded flex items-center justify-center text-white/30 hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
+                <Plus className="w-3 h-3" />
+              </button>
+              <button onClick={() => onDeleteFolder(node.path)} title="حذف المجلد"
+                className="w-5 h-5 rounded flex items-center justify-center text-white/40 hover:text-red-400 hover:bg-white/5">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
         {open && node.children.map((c) => (
           <FileTreeNode key={c.path} node={c} depth={depth + 1} activeFile={activeFile}
-            expandedFolders={expandedFolders} onToggle={onToggle} onOpen={onOpen}
-            onRename={onRename} onDelete={onDelete} canWrite={canWrite} />
+            expandedFolders={expandedFolders} activeFolder={activeFolder}
+            onToggle={onToggle} onOpen={onOpen}
+            onRename={onRename} onDelete={onDelete} onDeleteFolder={onDeleteFolder}
+            onContextMenu={onContextMenu} canWrite={canWrite} />
         ))}
       </div>
     );
@@ -316,6 +352,7 @@ function FileTreeNode({
     <div
       className="group flex items-center transition-colors"
       style={{ background: active ? "rgba(16,185,129,0.08)" : "transparent" }}
+      onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, node.path, false); }}
     >
       <button
         onClick={() => onOpen(node.path)}
@@ -544,41 +581,9 @@ export default function CodingRoom() {
   const [showChat, setShowChat] = useState(false);
   const [closingCountdown, setClosingCountdown] = useState<number | null>(null);
   const [newFile, setNewFile] = useState("");
-  const [activeRightTab, setActiveRightTab] = useState<"output" | "preview">("output");
-  const [previewHtml, setPreviewHtml] = useState("");
-  const [previewEntry, setPreviewEntry] = useState<string>("");
-  const [livePreview, setLivePreview] = useState(false);
-  const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
-  const [previewFullscreen, setPreviewFullscreen] = useState(false);
-  const [previewBlobUrl, setPreviewBlobUrl] = useState("");
-  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
-  const [joinToast, setJoinToast] = useState<PendingRequest | null>(null);
-  const joinToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [hostGraceCountdown, setHostGraceCountdown] = useState<number | null>(null);
-  const hostGraceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [processRunning, setProcessRunning] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [showInstallInput, setShowInstallInput] = useState(false);
-  const [installInput, setInstallInput] = useState("");
-  const [installedPkgs, setInstalledPkgs] = useState<string[]>([]);
-  const [errorHint, setErrorHint] = useState<ErrorHint | null>(null);
-  const [showRoomGuide, setShowRoomGuide] = useState(false);
-
-  // ── Gem billing ──────────────────────────────────────────────────────────────
-  const [showGemInfoModal, setShowGemInfoModal] = useState(false);
-  const gemInfoShownRef = useRef(false); // show only once per session
-  const gemBillingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [gemBalance, setGemBalance] = useState<number | null>(null);
-  const [liveOutput, setLiveOutput] = useState("");
-  const [inputLine, setInputLine] = useState("");
-  const liveOutputRef = useRef("");
-  const liveEndRef = useRef<HTMLDivElement>(null);
-  const processRunnerRef = useRef<{ id: number; name: string; language: string } | null>(null);
-  const hiddenInputRef = useRef<HTMLInputElement>(null);
-  const [unreadChat, setUnreadChat] = useState(0);
-  const [dockOpen, setDockOpen] = useState(true);
-  const [addingFile, setAddingFile] = useState(false);
+  const [addingType, setAddingType] = useState<"file" | "folder" | null>(null);
+  const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
   const [mobileTab, setMobileTab] = useState<"code" | "files" | "members">("code");
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
@@ -596,6 +601,38 @@ export default function CodingRoom() {
   const showChatRef = useRef(false);
   const myInfoRef = useRef<typeof myInfo>(null);
   const handleWsMsgRef = useRef<(raw: string) => void>(() => {});
+  const liveOutputRef = useRef("");
+  const liveEndRef = useRef<HTMLDivElement>(null);
+  const hiddenInputRef = useRef<HTMLInputElement>(null);
+  const processRunnerRef = useRef<{ id: number; name: string; language: string } | null>(null);
+  const gemInfoShownRef = useRef(false);
+  const joinToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hostGraceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const gemBillingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showGemInfoModal, setShowGemInfoModal] = useState(false);
+  const [liveOutput, setLiveOutput] = useState("");
+  const [processRunning, setProcessRunning] = useState(false);
+  const [dockOpen, setDockOpen] = useState(true);
+  const [inputLine, setInputLine] = useState("");
+  const [gemBalance, setGemBalance] = useState<number | null>(null);
+  const [modelLanguage, setModelLanguage] = useState("");
+  const [activeRightTab, setActiveRightTab] = useState<"output" | "preview">("output");
+  const [errorHint, setErrorHint] = useState<ErrorHint | null>(null);
+  const [hostGraceCountdown, setHostGraceCountdown] = useState<number | null>(null);
+  const [installInput, setInstallInput] = useState("");
+  const [installedPkgs, setInstalledPkgs] = useState<string[]>([]);
+  const [installing, setInstalling] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [joinToast, setJoinToast] = useState<PendingRequest | null>(null);
+  const [livePreview, setLivePreview] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState("");
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
+  const [previewEntry, setPreviewEntry] = useState<string>("");
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [showInstallInput, setShowInstallInput] = useState(false);
+  const [unreadChat, setUnreadChat] = useState(0);
 
   useEffect(() => {
     if (processRunning) {
@@ -883,7 +920,7 @@ export default function CodingRoom() {
           if (prev.find((f) => f.file_path === msg.filePath)) return prev;
           return [...prev, { file_path: msg.filePath, content: msg.content ?? "", language: "" }];
         });
-        if (msg.userId === myUserId) {
+        if (msg.userId === myUserId && !msg.filePath?.endsWith("/.folder")) {
           setOpenTabs((tabs) => (tabs.includes(msg.filePath) ? tabs : [...tabs, msg.filePath]));
           setActiveFile(msg.filePath);
         }
@@ -1128,7 +1165,7 @@ export default function CodingRoom() {
     return () => clearTimeout(t);
   }, [closingCountdown]);
 
-  // ── Gem billing: show info once on connect, then tick every 2 minutes ────────
+  // ── Gem billing: show info once on connect, then tick every minute ────────
   useEffect(() => {
     if (wsStatus !== "connected" || !connected) return;
 
@@ -1152,7 +1189,7 @@ export default function CodingRoom() {
           if (typeof d.gemsBalance === "number") setGemBalance(d.gemsBalance);
         }
       } catch {}
-    }, 120_000);
+    }, 60_000);
 
     return () => {
       if (gemBillingIntervalRef.current) clearInterval(gemBillingIntervalRef.current);
@@ -1197,7 +1234,7 @@ export default function CodingRoom() {
       modelFileRef.current = activeFile;
     }
     const isEditable = !!(myInfo?.canWrite || myInfo?.role === "host");
-    editorRef.current.updateOptions({ readOnly: !isEditable });
+    editorRef.current.updateOptions({ readOnly: !isEditable, readOnlyMessage: "المشرف منعك من الكتابة" });
   }, [activeFile, myInfo]);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
@@ -1306,8 +1343,13 @@ export default function CodingRoom() {
             maybeConnectPeer(m.userId, m.micEnabled);
           }
         }
-      } catch {
-        alert("تعذر الوصول إلى الميكروفون. تأكد من منح الإذن في المتصفح.");
+      } catch (err: any) {
+        const msg = err?.name === "NotAllowedError"
+          ? "تم رفض إذن الميكروفون. اسمح بالوصول للميكروفون من إعدادات المتصفح ثم حاول مجدداً."
+          : err?.name === "NotFoundError"
+          ? "لم يتم العثور على ميكروفون. تأكد من توصيل ميكروفون بجهازك."
+          : "تعذر الوصول إلى الميكروفون. تأكد من أن المتصفح يدعم WebRTC وأنك تستخدم HTTPS.";
+        alert(msg);
       }
     }
   };
@@ -1462,24 +1504,51 @@ export default function CodingRoom() {
   };
 
   const addNewFile = () => {
-    const filePath = newFile.trim();
-    if (!filePath) return;
-    if (!isValidPath(filePath)) {
-      alert("مسار غير صالح — لا يبدأ بـ / ولا يحتوي ..");
+    const name = newFile.trim();
+    if (!name) return;
+    if (addingType === "folder") {
+      if (!isValidPathComponent(name)) { alert("اسم المجلد غير صالح"); return; }
+      const folderPath = activeFolder ? activeFolder + "/" + name : name;
+      // Send marker file to server so folder persists across sessions
+      wsRef.current?.send(JSON.stringify({ type: "file_created", filePath: folderPath + "/.folder", content: "" }));
+      setExpandedFolders((prev) => ({ ...prev, [folderPath]: true }));
+      setNewFile(""); setAddingType(null);
       return;
     }
+    // File
+    if (!isValidPath(name)) { alert("المسار غير صالح"); return; }
+    const prefix = activeFolder ? activeFolder + "/" : "";
+    const filePath = prefix + name;
     if (files.find((f) => f.file_path === filePath)) {
-      openFile(filePath);
-      setNewFile("");
-      setAddingFile(false);
+      setNewFile(""); setAddingType(null);
+      setTimeout(() => openFile(filePath), 0);
       return;
     }
     wsRef.current?.send(JSON.stringify({ type: "file_created", filePath, content: "" }));
+    setNewFile(""); setAddingType(null);
+    // Auto-expand parent folder of new file
+    const sep = filePath.lastIndexOf("/");
+    if (sep > 0) {
+      const parentDir = filePath.substring(0, sep);
+      setExpandedFolders((prev) => ({ ...prev, [parentDir]: true }));
+    }
+  };
+
+  const startAdd = (type: "file" | "folder") => {
+    setActiveFolder(null);
+    setAddingType(type);
     setNewFile("");
-    setAddingFile(false);
+  };
+
+  const contextNewFile = (folderPath: string) => {
+    setActiveFolder(folderPath); setAddingType("file"); setNewFile(""); setContextMenu(null);
+  };
+  const contextNewFolder = (folderPath: string) => {
+    setActiveFolder(folderPath); setAddingType("folder"); setNewFile(""); setContextMenu(null);
   };
 
   const openFile = useCallback((path: string) => {
+    if (path.endsWith("/.folder")) return;
     setOpenTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
     setActiveFile(path);
   }, []);
@@ -1510,6 +1579,15 @@ export default function CodingRoom() {
   const requestDeleteFile = (path: string) => {
     if (!confirm(`حذف الملف «${path}»؟`)) return;
     wsRef.current?.send(JSON.stringify({ type: "file_deleted", filePath: path }));
+  };
+
+  const requestDeleteFolder = (path: string) => {
+    if (!confirm(`حذف المجلد «${path}» وكل محتوياته؟`)) return;
+    const affected = files.filter(f => f.file_path.startsWith(path + "/"));
+    for (const f of affected) {
+      wsRef.current?.send(JSON.stringify({ type: "file_deleted", filePath: f.file_path }));
+    }
+    setContextMenu(null);
   };
 
   const handleAdmit = (targetUserId: number) => {
@@ -1635,15 +1713,15 @@ export default function CodingRoom() {
           style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)", color: "rgba(165,180,252,0.8)" }}
         >
           <Gem className="w-3 h-3" />
-          <span className="text-[10px] font-bold">جوهرة/٢ دقيقة</span>
+          <span className="text-[10px] font-bold">جوهرتين/دقيقة</span>
           {gemBalance !== null && (
-            <span className="text-[10px] font-bold" style={{ color: gemBalance <= 5 ? "#f87171" : "rgba(165,180,252,0.6)" }}>
+            <span className="text-[10px] font-bold" style={{ color: "#fbbf24" }}>
               ({gemBalance})
             </span>
           )}
         </button>
 
-        <div className="hidden md:flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <button onClick={toggleMic}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all"
             style={{ background: micEnabled ? "rgba(16,185,129,0.18)" : "rgba(255,255,255,0.04)", border: `1px solid ${micEnabled ? "rgba(16,185,129,0.5)" : "rgba(255,255,255,0.1)"}`, color: micEnabled ? "#34D399" : "rgba(255,255,255,0.5)" }}>
@@ -1714,15 +1792,8 @@ export default function CodingRoom() {
             </button>
           )}
 
-          <button
-            onClick={() => setShowRoomGuide(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all hidden md:flex"
-            style={{ background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)", color: "rgba(147,197,253,0.7)" }}
-            title="دليل الغرفة البرمجية"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>دليل</span>
-          </button>
+
+
 
           {myInfo?.role === "host" && (
             <button onClick={handleCloseRoom}
@@ -1853,65 +1924,81 @@ export default function CodingRoom() {
                 <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full"
                   style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{files.length}</span>
               </div>
-              {canWrite && !addingFile && (
-                <button onClick={() => { setNewFile("folder/"); setAddingFile(true); }} title="ملف / مجلد جديد"
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
-                  <FolderPlus className="w-3.5 h-3.5" />
-                </button>
+              {canWrite && !addingType && (
+                <div className="flex items-center gap-0.5">
+                  <button onClick={() => startAdd("file")} title="ملف جديد"
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-white/40 hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
+                    <FileText className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => startAdd("folder")} title="مجلد جديد"
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-500/10 transition-colors">
+                    <FolderPlus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               )}
             </div>
-            {addingFile && (
+            {addingType && (
               <div className="flex items-center gap-1 px-2.5 py-2 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                <span className="text-[18px] shrink-0">{addingType === "folder" ? "📁" : "📄"}</span>
+                {activeFolder && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded text-blue-400/60 bg-blue-500/5 shrink-0 max-w-[100px] truncate" title={activeFolder}>
+                    {activeFolder}/
+                  </span>
+                )}
                 <input autoFocus value={newFile} onChange={(e) => setNewFile(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewFile(); } else if (e.key === "Escape") { setNewFile(""); setAddingFile(false); } }}
-                  onBlur={() => { if (!newFile.trim()) setAddingFile(false); }}
-                  placeholder="src/app.py"
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewFile(); } else if (e.key === "Escape") { setNewFile(""); setAddingType(null); } }}
+                  placeholder={addingType === "folder" ? "اسم المجلد" : "main.py أو src/utils/helper.py"}
                   dir="ltr"
                   className="flex-1 min-w-0 text-xs px-2.5 py-1.5 rounded-lg outline-none text-white placeholder:text-white/25 text-left"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(16,185,129,0.3)" }} />
+                  style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${addingType === "folder" ? "rgba(245,158,11,0.3)" : "rgba(59,130,246,0.3)"}` }} />
                 <button onClick={addNewFile}
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-emerald-400 hover:bg-emerald-500/15 transition-colors shrink-0">
                   <Check className="w-4 h-4" />
+                </button>
+                <button onClick={() => { setNewFile(""); setAddingType(null); }}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors shrink-0">
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             )}
             <div className="flex-1 overflow-y-auto py-1.5">
               {files.length === 0 ? (
                 <div className="text-xs text-white/25 text-center py-8 px-3">
-                  {canWrite ? "لا توجد ملفات — اضغط + لإنشاء ملف" : "بانتظار إنشاء الملفات…"}
+                  {canWrite ? "لا توجد ملفات — اضغط 📄 أو انقر يمين" : "بانتظار إنشاء الملفات…"}
                 </div>
               ) : (
                 buildTree(files).map((node) => (
                   <FileTreeNode key={node.path} node={node} depth={0} activeFile={activeFile}
-                    expandedFolders={expandedFolders}
+                    expandedFolders={expandedFolders} activeFolder={activeFolder}
                     onToggle={(p) => setExpandedFolders((prev) => ({ ...prev, [p]: !(prev[p] ?? true) }))}
                     onOpen={openFile}
                     onRename={(p) => { setRenamingFile(p); setRenameValue(p); }}
                     onDelete={requestDeleteFile}
+                    onDeleteFolder={requestDeleteFolder}
+onContextMenu={(e, path, isDir) => setContextMenu({ x: e.clientX, y: e.clientY, path, isDir })}
+                    onAddFile={contextNewFile}
                     canWrite={canWrite} />
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="shrink-0 border-t flex flex-col" style={{ borderColor: "rgba(255,255,255,0.06)", maxHeight: "42%" }}>
-            <div className="px-4 py-2.5 shrink-0 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm font-bold text-white/70">الأعضاء</span>
-              </div>
-              <span className="text-xs font-black px-2 py-0.5 rounded-full"
-                style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{members.length}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto px-2.5 pb-2.5 space-y-1.5">
-              {members.map((m) => (
-                <MemberItem key={m.userId} member={m} isMe={m.userId === myUserId}
-                  isHost={myInfo?.role === "host"} onPermChange={handlePermChange}
-                  onKick={handleKick} onTransfer={handleTransfer} />
-              ))}
+                )))}
               {members.length === 0 && (
                 <div className="text-xs text-white/25 text-center py-4">لا أحد متصل بعد</div>
               )}
+            </div>
+
+            {/* ── Desktop Members Panel ─────────────────────────────────────── */}
+            <div className="shrink-0 border-t flex flex-col" style={{ borderColor: "rgba(255,255,255,0.06)", maxHeight: "38%" }}>
+              <div className="px-3 py-2.5 shrink-0 flex items-center gap-2">
+                <Users className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs font-bold text-white/60">الأعضاء</span>
+                <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full ml-auto"
+                  style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{members.length}</span>
+              </div>
+              <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
+                {members.map((m) => (
+                  <MemberItem key={m.userId} member={m} isMe={m.userId === myUserId}
+                    isHost={myInfo?.role === "host"} onPermChange={handlePermChange}
+                    onKick={handleKick} onTransfer={handleTransfer} />
+                ))}
+              </div>
             </div>
           </div>
         </aside>
@@ -1990,40 +2077,58 @@ export default function CodingRoom() {
                   <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full"
                     style={{ background: "rgba(16,185,129,0.12)", color: "#34D399" }}>{files.length}</span>
                 </div>
-                {canWrite && !addingFile && (
-                  <button onClick={() => { setNewFile("folder/"); setAddingFile(true); }} title="ملف / مجلد جديد"
-                    className="w-7 h-7 rounded-md flex items-center justify-center text-white/40 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
-                    <FolderPlus className="w-4 h-4" />
-                  </button>
+                {canWrite && !addingType && (
+                  <div className="flex items-center gap-0.5">
+                    <button onClick={() => startAdd("file")} title="ملف جديد"
+                      className="w-7 h-7 rounded-md flex items-center justify-center text-white/40 hover:text-blue-400 hover:bg-blue-500/10 transition-colors">
+                      <FileText className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => startAdd("folder")} title="مجلد جديد"
+                      className="w-7 h-7 rounded-md flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-500/10 transition-colors">
+                      <FolderPlus className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
               </div>
-              {addingFile && (
+              {addingType && (
                 <div className="flex items-center gap-1 px-2.5 py-2 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                  <span className="text-[18px] shrink-0">{addingType === "folder" ? "📁" : "📄"}</span>
+                   {activeFolder && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded text-blue-400/60 bg-blue-500/5 shrink-0 max-w-[80px] truncate" title={activeFolder}>
+                      {activeFolder}/
+                    </span>
+                  )}
                   <input autoFocus value={newFile} onChange={(e) => setNewFile(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewFile(); } else if (e.key === "Escape") { setNewFile(""); setAddingFile(false); } }}
-                    onBlur={() => { if (!newFile.trim()) setAddingFile(false); }}
-                    placeholder="src/app.py" dir="ltr"
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addNewFile(); } else if (e.key === "Escape") { setNewFile(""); setAddingType(null); } }}
+                    placeholder={addingType === "folder" ? "اسم المجلد" : "main.py أو src/utils/helper.py"} dir="ltr"
                     className="flex-1 min-w-0 text-xs px-2.5 py-1.5 rounded-lg outline-none text-white placeholder:text-white/25 text-left"
-                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(16,185,129,0.3)" }} />
+                    style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${addingType === "folder" ? "rgba(245,158,11,0.3)" : "rgba(59,130,246,0.3)"}` }} />
                   <button onClick={addNewFile}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-emerald-400 hover:bg-emerald-500/15 transition-colors shrink-0">
                     <Check className="w-4 h-4" />
                   </button>
+                  <button onClick={() => { setNewFile(""); setAddingType(null); }}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors shrink-0">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               )}
-              <div className="flex-1 overflow-y-auto py-1.5">
+            <div className="flex-1 overflow-y-auto py-1.5"
+              onContextMenu={(e) => { if (canWrite) { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, path: "", isDir: true }); } }}>
                 {files.length === 0 ? (
                   <div className="text-xs text-white/25 text-center py-8 px-3">
-                    {canWrite ? "لا توجد ملفات — اضغط + لإنشاء ملف" : "بانتظار إنشاء الملفات…"}
+                    {canWrite ? "لا توجد ملفات — اضغط 📄 لإنشاء ملف أو 📁 لمجلد" : "بانتظار إنشاء الملفات…"}
                   </div>
                 ) : (
                   buildTree(files).map((node) => (
                     <FileTreeNode key={node.path} node={node} depth={0} activeFile={activeFile}
-                      expandedFolders={expandedFolders}
+                      expandedFolders={expandedFolders} activeFolder={activeFolder}
                       onToggle={(p) => setExpandedFolders((prev) => ({ ...prev, [p]: !(prev[p] ?? true) }))}
                       onOpen={(path) => { openFile(path); setMobileTab("code"); }}
                       onRename={(p) => { setRenamingFile(p); setRenameValue(p); }}
-                      onDelete={requestDeleteFile}
+                      onDelete={requestDeleteFile} onDeleteFolder={requestDeleteFolder}
+                      onContextMenu={(e, path, isDir) => setContextMenu({ x: e.clientX, y: e.clientY, path, isDir })}
+                      onAddFile={contextNewFile}
                       canWrite={canWrite} />
                   ))
                 )}
@@ -2105,6 +2210,14 @@ export default function CodingRoom() {
                 </div>
               </div>
             )}
+            {/* ── Read-only banner —─────────────────────────────────────────────── */}
+            {wsStatus === "connected" && !canWrite && (
+              <div className="shrink-0 mx-4 mt-2 px-3 py-1.5 rounded-lg flex items-center gap-2"
+                style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                <span className="text-xs font-bold text-red-300">المشرف منعك من الكتابة</span>
+              </div>
+            )}
             <Editor
               height="100%"
               theme="vs-dark"
@@ -2125,6 +2238,7 @@ export default function CodingRoom() {
                 smoothScrolling: true,
                 wordWrap: "on",
                 readOnly: !canWrite,
+                readOnlyMessage: "المشرف منعك من الكتابة",
                 renderLineHighlight: "all",
                 bracketPairColorization: { enabled: true },
                 guides: { bracketPairs: true, indentation: true },
@@ -2553,195 +2667,50 @@ export default function CodingRoom() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showRoomGuide && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[80] flex items-start justify-end"
-            style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(6px)" }}
-            onClick={() => setShowRoomGuide(false)}
-          >
-            <motion.div
-              initial={{ x: 400, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 400, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 320, damping: 32 }}
-              onClick={(e) => e.stopPropagation()}
-              className="h-full w-full max-w-sm flex flex-col overflow-hidden"
-              style={{ background: "rgba(6,9,18,0.99)", borderRight: "none", borderLeft: "1px solid rgba(255,255,255,0.07)", boxShadow: "-20px 0 60px rgba(0,0,0,0.6)" }}
-            >
-              <div className="flex items-center gap-3 px-5 py-4 border-b shrink-0" style={{ borderColor: "rgba(255,255,255,0.07)", background: "rgba(10,14,26,0.98)" }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.25)" }}>
-                  <BookOpen className="w-4.5 h-4.5 text-blue-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-black text-white">دليل الغرفة البرمجية</div>
-                  <div className="text-[10px] text-white/40 mt-0.5">كل ما تحتاج معرفته للاستفادة الكاملة</div>
-                </div>
-                <button onClick={() => setShowRoomGuide(false)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors shrink-0">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-
-                <div className="px-4 py-4 space-y-4">
-
-                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(16,185,129,0.2)", background: "rgba(16,185,129,0.04)" }}>
-                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(16,185,129,0.15)", background: "rgba(16,185,129,0.06)" }}>
-                      <Zap className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-black text-emerald-300">اللغات المدعومة للتشغيل</span>
-                    </div>
-                    <div className="p-3 space-y-2">
-                      {[
-                        { lang: "Python 🐍", desc: "تشغيل تفاعلي كامل + إدخال مباشر + تنزيل مكتبات (pip)", color: "#34D399" },
-                        { lang: "JavaScript (Node.js) ⚡", desc: "تشغيل تفاعلي + تنزيل حزم (npm)", color: "#FCD34D" },
-                        { lang: "Bash 🐚", desc: "تشغيل سكريبتات الصدفة تفاعلياً", color: "#A78BFA" },
-                        { lang: "C 🔩 / C++ ⚙️", desc: "يُترجم ويُشغَّل مباشرةً (gcc / g++)", color: "#60A5FA" },
-                      ].map((item) => (
-                        <div key={item.lang} className="flex items-start gap-2.5">
-                          <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: item.color }} />
-                          <div>
-                            <div className="text-[12px] font-bold" style={{ color: item.color }}>{item.lang}</div>
-                            <div className="text-[11px] leading-relaxed mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>{item.desc}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(245,158,11,0.2)", background: "rgba(245,158,11,0.04)" }}>
-                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(245,158,11,0.15)", background: "rgba(245,158,11,0.06)" }}>
-                      <Info className="w-4 h-4 text-amber-400" />
-                      <span className="text-xs font-black text-amber-300">لغات كتابة فقط (لا تُشغَّل داخل الغرفة)</span>
-                    </div>
-                    <div className="p-3">
-                      <div className="flex flex-wrap gap-2">
-                        {["Java ☕", "TypeScript 💙", "Rust 🦀", "Kotlin 🤖", "Dart 🎯", "SQL 🗄️"].map((l) => (
-                          <span key={l} className="px-2 py-1 rounded-lg text-[11px] font-bold" style={{ background: "rgba(245,158,11,0.1)", color: "#FCD34D", border: "1px solid rgba(245,158,11,0.2)" }}>{l}</span>
-                        ))}
-                      </div>
-                      <p className="text-[11px] mt-2.5 leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>يمكنك كتابة الكود والتعديل التعاوني عليه، لكن للتشغيل انسخ الكود وجرّبه في بيئة خارجية.</p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(96,165,250,0.2)", background: "rgba(96,165,250,0.04)" }}>
-                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(96,165,250,0.15)", background: "rgba(96,165,250,0.06)" }}>
-                      <Shield className="w-4 h-4 text-blue-400" />
-                      <span className="text-xs font-black text-blue-300">الأدوار والصلاحيات</span>
-                    </div>
-                    <div className="p-3 space-y-3">
-                      <div>
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                          <Crown className="w-3.5 h-3.5" style={{ color: "#F59E0B" }} />
-                          <span className="text-[12px] font-black" style={{ color: "#F59E0B" }}>المشرف (Host)</span>
-                        </div>
-                        <ul className="space-y-1">
-                          {["يملك كل الصلاحيات تلقائياً", "يُشغِّل الكود ويوقفه لجميع الأعضاء", "يمنح الأعضاء إذن الكتابة والتشغيل", "يُنزِّل المكتبات (pip/npm)", "يدير الملفات (إنشاء/نقل/حذف)", "يُغلق الغرفة أو ينقل الإشراف"].map((p) => (
-                            <li key={p} className="flex items-center gap-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
-                              <Check className="w-3 h-3 shrink-0" style={{ color: "#10B981" }} /> {p}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="border-t pt-3" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                          <Users className="w-3.5 h-3.5 text-blue-400" />
-                          <span className="text-[12px] font-black text-blue-300">العضو (Member)</span>
-                        </div>
-                        <ul className="space-y-1">
-                          {["يشاهد الكود والتعديلات مباشرةً", "يكتب في المحرر بإذن المشرف فقط", "يُشغِّل الكود بإذن المشرف فقط", "يتواصل عبر الدردشة والصوت", "يطلب تشغيل الكود من المشرف"].map((p) => (
-                            <li key={p} className="flex items-center gap-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
-                              <Check className="w-3 h-3 shrink-0" style={{ color: "#60A5FA" }} /> {p}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.04)" }}>
-                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(139,92,246,0.15)", background: "rgba(139,92,246,0.06)" }}>
-                      <BookOpen className="w-4 h-4" style={{ color: "#A78BFA" }} />
-                      <span className="text-xs font-black" style={{ color: "#C4B5FD" }}>الميزات الكاملة</span>
-                    </div>
-                    <div className="p-3 space-y-1.5">
-                      {[
-                        { icon: "✏️", text: "تعديل تعاوني مباشر — يرى الجميع تغييراتك فور الكتابة" },
-                        { icon: "▶️", text: "تيرمنال حي — اكتب بيانات الإدخال أثناء تشغيل البرنامج" },
-                        { icon: "📦", text: "تنزيل مكتبات pip (Python) وnpm (JavaScript) داخل الغرفة" },
-                        { icon: "🗂️", text: "إدارة ملفات متعددة ومجلدات — أنشئ مشروعاً كاملاً" },
-                        { icon: "🌐", text: "معاينة HTML/CSS/JS مباشرة داخل الغرفة — موبايل وسطح مكتب" },
-                        { icon: "💬", text: "دردشة نصية مع جميع أعضاء الغرفة" },
-                        { icon: "🎙️", text: "مكالمة صوتية WebRTC بين الأعضاء" },
-                        { icon: "📥", text: "تحميل الكود كملفات على جهازك" },
-                        { icon: "🔄", text: "نقل الإشراف لعضو آخر عند الحاجة" },
-                      ].map((f) => (
-                        <div key={f.text} className="flex items-start gap-2.5 py-1">
-                          <span className="text-sm shrink-0 mt-0.5">{f.icon}</span>
-                          <span className="text-[11.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>{f.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.04)" }}>
-                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(239,68,68,0.15)", background: "rgba(239,68,68,0.06)" }}>
-                      <AlertTriangle className="w-4 h-4 text-red-400" />
-                      <span className="text-xs font-black text-red-300">القيود المهمة</span>
-                    </div>
-                    <div className="p-3 space-y-1.5">
-                      {[
-                        { icon: "🚫", text: "لا اتصال بالإنترنت — لا يمكن fetch البيانات من مواقع خارجية" },
-                        { icon: "⏱️", text: "المكتبات المثبتة مؤقتة — تُحذف عند إعادة تشغيل الخادم" },
-                        { icon: "💾", text: "لا قواعد بيانات خارجية أو خوادم ويب داخل الغرفة" },
-                        { icon: "🧵", text: "برنامج واحد يعمل في كل وقت لكل الغرفة" },
-                        { icon: "📁", text: "الملفات تُحفظ في الغرفة ولا تُنقل تلقائياً لحسابك" },
-                        { icon: "🔇", text: "الصوت يتطلب إذن المتصفح بالوصول للميكروفون" },
-                      ].map((l) => (
-                        <div key={l.text} className="flex items-start gap-2.5 py-0.5">
-                          <span className="text-sm shrink-0 mt-0.5">{l.icon}</span>
-                          <span className="text-[11.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.55)" }}>{l.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(52,211,153,0.2)", background: "rgba(52,211,153,0.04)" }}>
-                    <div className="flex items-center gap-2 px-3 py-2.5 border-b" style={{ borderColor: "rgba(52,211,153,0.15)", background: "rgba(52,211,153,0.06)" }}>
-                      <Lightbulb className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-black text-emerald-300">نصائح للاستخدام الأمثل</span>
-                    </div>
-                    <div className="p-3 space-y-2">
-                      {[
-                        "عند ظهور خطأ، سيظهر مباشرةً تحت الناتج تحليل يشرح السبب والحل",
-                        "نزّل المكتبة أولاً ثم شغّل — المكتبات المثبتة تبقى طوال جلسة الغرفة",
-                        "للمشاريع المتعددة استخدم مجلدات: src/main.py أو utils/helper.py",
-                        "Ctrl+C في التيرمنال الحي يوقف البرنامج فوراً",
-                        "المشرف يستطيع منح إذن الكتابة والتشغيل لكل عضو بشكل منفصل",
-                        "عند انتهاء الجلسة حمّل الكود بزر التحميل قبل الخروج",
-                      ].map((tip, i) => (
-                        <div key={i} className="flex items-start gap-2.5">
-                          <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[9px] font-black" style={{ background: "rgba(16,185,129,0.15)", color: "#34D399", border: "1px solid rgba(16,185,129,0.25)" }}>{i + 1}</div>
-                          <span className="text-[11.5px] leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>{tip}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-              <div className="px-4 py-3 border-t shrink-0" style={{ borderColor: "rgba(255,255,255,0.07)", background: "rgba(6,9,18,0.99)" }}>
-                <button onClick={() => setShowRoomGuide(false)} className="w-full py-2.5 rounded-xl text-sm font-bold transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}>
-                  فهمت، شكراً!
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
       </AnimatePresence>
+
+      {/* ── Right-click Context Menu ─────────────────────────────────────────── */}
+      {contextMenu && (
+        <div
+          className="fixed z-[100] rounded-xl py-1 shadow-2xl min-w-[160px]"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 180),
+            top: Math.min(contextMenu.y, window.innerHeight - 200),
+            background: "rgba(14,18,30,0.98)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            backdropFilter: "blur(12px)",
+          }}
+          onClick={() => setContextMenu(null)}
+        >
+          {contextMenu.isDir ? (
+            <>
+              <button onClick={() => contextNewFile(contextMenu.path)} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white transition-colors">
+                <FileText className="w-3.5 h-3.5" /> ملف جديد هنا
+              </button>
+              <button onClick={() => contextNewFolder(contextMenu.path)} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white transition-colors">
+                <FolderPlus className="w-3.5 h-3.5" /> مجلد جديد هنا
+              </button>
+              <div className="h-px mx-2 my-1" style={{ background: "rgba(255,255,255,0.06)" }} />
+              <button onClick={() => requestDeleteFolder(contextMenu.path)} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors">
+                <Trash2 className="w-3.5 h-3.5" /> حذف المجلد
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { setRenamingFile(contextMenu.path); setRenameValue(contextMenu.path); setContextMenu(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white transition-colors">
+                <Pencil className="w-3.5 h-3.5" /> إعادة تسمية
+              </button>
+              <button onClick={() => { requestDeleteFile(contextMenu.path); setContextMenu(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors">
+                <Trash2 className="w-3.5 h-3.5" /> حذف
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {/* Close context menu on any click outside */}
+      {contextMenu && (
+        <div className="fixed inset-0 z-[99]" onClick={() => setContextMenu(null)} />
+      )}
 
       {/* ── Gem Info Modal ───────────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -2776,8 +2745,8 @@ export default function CodingRoom() {
                 <Gem className="w-5 h-5 shrink-0" style={{ color: "#818cf8" }} />
                 <div>
                   <p className="text-sm font-black" style={{ color: "#c7d2fe" }}>
-                    جوهرة واحدة كل <span style={{ color: "#818cf8" }}>دقيقتين
-                    </span>
+                    جوهرتين كل <span style={{ color: "#818cf8" }}>دقيقة
+                  </span>
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
                     تُخصم من المادة ذات الرصيد الأعلى تلقائياً
@@ -2786,7 +2755,7 @@ export default function CodingRoom() {
               </div>
 
               <ul className="space-y-1.5 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                <li className="flex items-start gap-2"><span>•</span><span>الخصم يبدأ بعد ٢ دقيقة من دخول الغرفة</span></li>
+                <li className="flex items-start gap-2"><span>•</span><span>الخصم يبدأ بعد دقيقة من دخول الغرفة</span></li>
                 <li className="flex items-start gap-2"><span>•</span><span>إذا انتهى رصيدك تبقى في الغرفة دون خصم</span></li>
                 <li className="flex items-start gap-2"><span>•</span><span>يظهر رصيدك المحدَّث في أعلى الصفحة</span></li>
               </ul>

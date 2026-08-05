@@ -11,11 +11,12 @@ import {
 } from "./gems";
 
 const RECENT_EXPIRY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-// Free-trial gem allowance. Kept in lockstep with the v4 welcome gift
-// (V4_WELCOME_GIFT_GEMS = 100) so a student is never told "80 free gems" in
-// one place and granted 100 in another. The live teaching path is v4, which
-// grants 100 on first touch; the legacy badge/cap must report the same number.
-export const FREE_LESSON_GEM_LIMIT = 100;
+// Legacy free-lesson gem cap. Must stay in sync with the actual operational
+// limit in routes/ai.ts:123 (FREE_LESSON_GEM_LIMIT = 80). The v4 per-subject
+// +100 welcome gift is retired (V4_WELCOME_GIFT_GEMS = 0, replaced by a global
+// 150-gem pool in v4-welcome-gift.ts), so the old lockstep justification no
+// longer applies.
+export const FREE_LESSON_GEM_LIMIT = 80;
 
 /**
  * Per-subject first-lesson view. `freeMessagesUsed >= cap` is authoritative

@@ -3170,6 +3170,51 @@ router.get("/subscriptions/gems-balance-summary", async (req, res): Promise<void
       return;
     }
 
+    // Fallback: v4 gem wallets (student_gem_wallets) — includes welcome gift,
+    // referral rewards, and other non-subscription balances. These have no
+    // daily cap, so the entire balance is usable immediately.
+    {
+      const v4Wallets = await db
+        .select()
+        .from(studentGemWalletsTable)
+        .where(and(
+          eq(studentGemWalletsTable.userId, userId),
+          gt(studentGemWalletsTable.gemsBalance, 0),
+          sql`(${studentGemWalletsTable.expiresAt} IS NULL OR ${studentGemWalletsTable.expiresAt} > ${now})`,
+        ))
+        .orderBy(desc(studentGemWalletsTable.gemsBalance));
+
+      if (v4Wallets.length > 0) {
+        const totalBalance = v4Wallets.reduce((s, w) => s + (w.gemsBalance ?? 0), 0);
+        const walletSubs = await Promise.all(v4Wallets.slice(0, 10).map(async (w) => {
+          const name = w.subjectId === "_welcome" ? "🎁 هدية ترحيبية" : w.subjectId;
+          return {
+            subjectId: w.subjectId,
+            subjectName: name,
+            dailyRemaining: w.gemsBalance ?? 0,
+            gemsDailyLimit: w.gemsBalance ?? 0,
+            gemsBalance: w.gemsBalance ?? 0,
+            gemsExpiresAt: w.expiresAt,
+          };
+        }));
+        res.json({
+          hasActiveSub: true,
+          canUseGems: totalBalance > 0,
+          totalDailyRemaining: totalBalance,
+          totalDailyLimit: totalBalance,
+          totalBalance,
+          activeSubjectCount: v4Wallets.length,
+          worstSubject: null,
+          nearestExpiresAt: v4Wallets.map(w => w.expiresAt).filter(Boolean).sort()[0] ?? null,
+          nearestExpiresInDays: null,
+          nearestSubject: null,
+          subjects: walletSubs,
+          source: "v4_wallets" as const,
+        });
+        return;
+      }
+    }
+
     // No active paid wallet — surface first-lesson grace as a badge-eligible
     // state so the header never goes dark for a logged-in user on
     // non-subject pages (dashboard, learn, etc.). The free grace is

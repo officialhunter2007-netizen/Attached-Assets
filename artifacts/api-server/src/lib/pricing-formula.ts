@@ -84,9 +84,21 @@ export function getGemsPer1MTeachingTokens(): number {
  * SINGLE SOURCE OF TRUTH — every AI charge MUST go through this. Floors at 1
  * gem for any positive cost so a sub-cent turn still costs something.
  */
+const FIXED_GEMS_PER_USD = 1000;
+
 export function usdToGems(usd: number): number {
   if (!Number.isFinite(usd) || usd <= 0) return 0;
   return Math.max(1, Math.floor(usd * LIVE_GEMS_PER_USD));
+}
+
+/**
+ * Fixed-rate conversion for features NOT affected by admin pricing changes.
+ * Always 1000 gems per USD regardless of the admin gems_per_1m setting.
+ * Used by: coding rooms, visual explain, typing lessons.
+ */
+export function usdToGemsFixed(usd: number): number {
+  if (!Number.isFinite(usd) || usd <= 0) return 0;
+  return Math.max(1, Math.floor(usd * FIXED_GEMS_PER_USD));
 }
 
 /**

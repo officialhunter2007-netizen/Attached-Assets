@@ -13,6 +13,9 @@
 
 import { Router } from "express";
 import crypto    from "crypto";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+import { chargeV4Ai } from "../lib/v4-gem-wallet";
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 function getUserId(req: any): number | null {
@@ -452,7 +455,7 @@ router.post("/v4/visual-explain/start", async (req, res) => {
   const msg = message.trim();
   cleanOldJobs();
 
-  // If already cached → return a pre-resolved job immediately
+  // If already cached → return a pre-resolved job immediately (no charge)
   const key = cacheKey(msg);
   const cached = htmlCache.get(key);
   if (cached) {
@@ -460,6 +463,33 @@ router.post("/v4/visual-explain/start", async (req, res) => {
     jobs.set(jobId, { status: "done", html: cached, createdAt: Date.now() });
     console.log("[visual-explain] Cache hit — returning immediately");
     return res.json({ jobId });
+  }
+
+  // ── Gem billing: 50 gems per visual explain generation ─────────────────────
+  const VISUAL_EXPLAIN_COST_USD = 0.050;
+  const wallets = await db.execute(sql`
+    SELECT subject_id AS "subjectId"
+    FROM student_gem_wallets
+    WHERE user_id = ${userId}
+      AND gems_balance > 0
+      AND (expires_at IS NULL OR expires_at > NOW())
+    ORDER BY gems_balance DESC
+    LIMIT 1
+  `);
+  if ((wallets.rows?.length ?? 0) === 0) {
+    return res.status(402).json({ error: "رصيدك من الجواهر غير كافٍ للتوضيح البصري (50 جوهرة)" });
+  }
+  const subjectId = String((wallets.rows[0] as any).subjectId);
+  const charge = await chargeV4Ai({
+    requestId: `visual-explain:${userId}:${Date.now()}`,
+    userId,
+    subjectId,
+    costUsd: VISUAL_EXPLAIN_COST_USD,
+    source: "v4_ai_visual",
+    useFixedRate: true,
+  });
+  if (charge.error || !charge.charged) {
+    return res.status(402).json({ error: "تعذّر خصم الجواهر. تأكد من رصيدك وحاول مجدداً." });
   }
 
   // Start a fresh Manus task in the background

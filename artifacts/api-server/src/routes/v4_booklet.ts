@@ -825,9 +825,10 @@ router.post("/v4/booklet/teach", requireUser, requireSameOriginCsrf, async (req,
       // REAL post-hoc token cost. drainIfInsufficient: a turn whose cost exceeds
       // the remaining balance drains the wallet to zero (the next turn's pre-gate
       // then blocks) rather than being served for free.
-      const usdCost = ((result.inputTokens || 0) * 0.10 + (result.outputTokens || 0) * 0.40) / 1_000_000;
+      const rawCost = ((result.inputTokens || 0) * 0.10 + (result.outputTokens || 0) * 0.40) / 1_000_000;
+      const usdCost = rawCost > 0 ? rawCost : 0.001;
       let charged = false;
-      if (usdCost > 0) {
+      {
         const c = await chargeV4Ai({
           requestId,
           userId: uid,

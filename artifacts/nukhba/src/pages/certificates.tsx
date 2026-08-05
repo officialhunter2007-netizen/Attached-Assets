@@ -98,9 +98,11 @@ function formatDateAr(iso: string) {
 function CertCard({
   cert,
   onClick,
+  onDownload,
 }: {
   cert: CertRow;
   onClick: () => void;
+  onDownload: (cert: CertRow) => void;
 }) {
   const cfg = typeConfig[cert.type] ?? typeConfig.unit_exam;
   const isSpecialty = cert.type === "specialty_complete";
@@ -176,13 +178,24 @@ function CertCard({
           {formatDateAr(cert.issued_at)}
         </div>
 
-        {/* View arrow */}
-        <div
-          className="flex items-center gap-1 text-[10px] font-bold opacity-60 group-hover:opacity-100 transition-opacity"
-          style={{ color: cfg.color }}
-        >
-          عرض
-          <ArrowRight className="w-3 h-3" />
+        {/* View + Download */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => { e.stopPropagation(); onDownload(cert); }}
+            title="تنزيل PDF"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all hover:scale-[1.05]"
+            style={{ background: "rgba(212,175,55,0.15)", border: "1px solid rgba(212,175,55,0.3)", color: "#D4AF37" }}
+          >
+            <Download className="w-3 h-3" />
+            PDF
+          </button>
+          <div
+            className="flex items-center gap-1 text-[10px] font-bold opacity-60 group-hover:opacity-100 transition-opacity"
+            style={{ color: cfg.color }}
+          >
+            عرض
+            <ArrowRight className="w-3 h-3" />
+          </div>
         </div>
       </div>
     </motion.div>
@@ -197,14 +210,10 @@ export default function Certificates() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCert, setSelectedCert] = useState<CertRow | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
-  // reset expansion when cert changes
-  const handleSelectCert = (cert: CertRow) => {
-    setSelectedCert(cert);
-    setQuizScoresExpanded(false);
-  };
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const pdfRef = useRef<HTMLDivElement>(null);
+  const selectedCertRef = useRef<CertRow | null>(null);
 
-  // quiz scores keyed by specialty_slug
   const [quizScores, setQuizScores] = useState<Record<string, SpecialtyQuizScores>>({});
   const [quizScoresExpanded, setQuizScoresExpanded] = useState(false);
 
@@ -240,7 +249,6 @@ export default function Certificates() {
         setStudentName(data.studentName ?? "");
         const rows: CertRow[] = Array.isArray(data.certificates) ? data.certificates : [];
         setCerts(rows);
-        // Fetch quiz scores for all unique specialties in parallel
         const slugs = [...new Set(rows.map((c) => c.specialty_slug))];
         if (slugs.length > 0) fetchQuizScores(slugs);
       })
@@ -248,19 +256,43 @@ export default function Certificates() {
       .finally(() => setLoading(false));
   }, [fetchQuizScores]);
 
+  const handleSelectCert = (cert: CertRow) => {
+    setSelectedCert(cert);
+    selectedCertRef.current = cert;
+    setQuizScoresExpanded(false);
+    setDownloadError(null);
+  };
+
+  async function handleCardDownload(cert: CertRow) {
+    setSelectedCert(cert);
+    selectedCertRef.current = cert;
+    setDownloadError(null);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await downloadPDFInternal();
+  }
+
   async function downloadPDF() {
-    if (!selectedCert || !pdfRef.current || isDownloading) return;
+    await downloadPDFInternal();
+  }
+
+  async function downloadPDFInternal() {
+    const cert = selectedCertRef.current;
+    if (!cert || !pdfRef.current || isDownloading) return;
     setIsDownloading(true);
+    setDownloadError(null);
     try {
       const canvas = await html2canvas(pdfRef.current, {
         scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: "#070B18",
-        logging: false,
+        logging: true,
         width: 900,
         height: 638,
       });
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        throw new Error("تعذّر إنشاء صورة الشهادة — canvas فارغ");
+      }
       const imgData = canvas.toDataURL("image/jpeg", 0.92);
       const pdf = new jsPDF({
         orientation: "landscape",
@@ -269,9 +301,10 @@ export default function Certificates() {
         compress: true,
       });
       pdf.addImage(imgData, "JPEG", 0, 0, 900, 638);
-      pdf.save(`شهادة-${selectedCert.specialty_name}-نُخبة.pdf`);
-    } catch (e) {
+      pdf.save(`شهادة-${cert.specialty_name}-نُخبة.pdf`);
+    } catch (e: any) {
       console.error("[certificates] PDF error", e);
+      setDownloadError(e?.message || "تعذّر إنشاء PDF — حاول مرة أخرى");
     } finally {
       setIsDownloading(false);
     }
@@ -400,7 +433,7 @@ export default function Certificates() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
                 >
-                  <CertCard cert={cert} onClick={() => handleSelectCert(cert)} />
+                  <CertCard cert={cert} onClick={() => handleSelectCert(cert)} onDownload={handleCardDownload} />
                 </motion.div>
               ))}
             </motion.div>
@@ -510,6 +543,9 @@ export default function Certificates() {
                   )}
                   {isDownloading ? "جارٍ إنشاء PDF…" : "تنزيل PDF"}
                 </button>
+                {downloadError && (
+                  <p className="text-xs text-red-400 text-center mt-1">{downloadError}</p>
+                )}
               </div>
 
               {/* ── Quiz scores section ───────────────────────────────── */}
@@ -678,10 +714,11 @@ export default function Certificates() {
       <div
         ref={pdfRef}
         style={{
-          position: "fixed",
+          position: "absolute",
           top: 0,
-          left: -2000,
-          zIndex: -100,
+          left: 0,
+          zIndex: -1000,
+          opacity: 0,
           pointerEvents: "none",
           width: 900,
           height: 638,

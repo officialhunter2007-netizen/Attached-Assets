@@ -614,16 +614,44 @@ async function runV0Stream(args: StreamGeminiArgs): Promise<StreamGeminiResult> 
     if (!r.ok) {
       const errBody = await r.text().catch(() => "");
       console.warn(`[v0-stream] HTTP ${r.status}: ${errBody.slice(0, 300)}`);
-      throw new GeminiTransientError(`v0 HTTP ${r.status}`, {
+      if (r.status === 402 || /insufficient.credits|out.of.credits|payment.required/i.test(errBody)) {
+        throw new GeminiCreditExhaustedError(`v0 HTTP ${r.status}: ${errBody.slice(0, 200)}`);
+      }
+      throw new GeminiTransientError(`v0 HTTP ${r.status}`, r.status, {
         emittedAnyChunk: false,
         usageMetadata: null,
         partialResponseChars: 0,
       });
     }
 
-    const json = await r.json();
+    const json: any = await r.json();
     const assistantMsg = json.messages?.find((m: any) => m.role === "assistant");
-    const content = assistantMsg?.content ?? "";
+
+    // v0 signals "out of credits" (and other task failures) NOT via HTTP
+    // status but inside the assistant message's experimental_content as
+    // `task-stopped-v1` parts (e.g. [{type: "out-of-credits"}]). The HTTP
+    // call returns 200 with an empty message, so we must inspect the payload
+    // or the failure is silent (empty teacher reply, no error anywhere).
+    const expContent = JSON.stringify(assistantMsg?.experimental_content ?? "");
+    if (expContent.includes("out-of-credits")) {
+      console.warn(`[v0-stream] v0 account OUT OF CREDITS (task-stopped-v1) — top up at https://v0.app/billing`);
+      throw new GeminiCreditExhaustedError("v0 account out of credits — top up at https://v0.app/billing");
+    }
+    if (expContent.includes("task-stopped") && !assistantMsg?.content) {
+      console.warn(`[v0-stream] v0 task stopped with empty content: ${expContent.slice(0, 300)}`);
+      throw new GeminiTransientError(`v0 task stopped: ${expContent.slice(0, 200)}`, 200, {
+        emittedAnyChunk: false,
+        usageMetadata: null,
+        partialResponseChars: 0,
+      });
+    }
+
+    // Primary: assistant message content. Fallback: top-level `text` field.
+    const content = assistantMsg?.content || json.text || "";
+
+    if (!content) {
+      console.warn(`[v0-stream] empty response from v0 (no content, no text). finishReason=${assistantMsg?.finishReason ?? "?"}`);
+    }
 
     if (content) {
       args.onChunk(content);
@@ -642,9 +670,15 @@ async function runV0Stream(args: StreamGeminiArgs): Promise<StreamGeminiResult> 
     };
   } catch (err: any) {
     clearTimeout(timer);
-    if (err instanceof GeminiError) throw err;
+    if (
+      err instanceof GeminiAuthError ||
+      err instanceof GeminiTransientError ||
+      err instanceof GeminiBadOutputError ||
+      err instanceof GeminiClientError
+    ) throw err;
     throw new GeminiTransientError(
       err?.name === "AbortError" ? "v0 timed out" : `v0 error: ${err?.message ?? "unknown"}`,
+      0,
       { emittedAnyChunk: emittedChunks, usageMetadata: null, partialResponseChars: 0 },
     );
   }

@@ -283,7 +283,16 @@ router.get("/v4/certificates", requireUser, async (req: any, res: any): Promise<
       }
     }
 
-    // 5. Deduplicate + sort (specialty_complete first, then newest first)
+    // 5. Manually-issued completion certificates (e.g., admin-granted)
+    const manualCerts = await db.execute(sql`
+      SELECT * FROM v4_certificates
+      WHERE user_id = ${userId}
+        AND type = 'completion'
+      ORDER BY issued_at DESC
+    `);
+    certRows.push(...(manualCerts as any).rows);
+
+    // 6. Deduplicate + sort (specialty_complete first, then newest first)
     const seen = new Set<number>();
     const unique = certRows.filter((c: any) => {
       if (seen.has(c.id)) return false;

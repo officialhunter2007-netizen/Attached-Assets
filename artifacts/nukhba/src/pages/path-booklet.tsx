@@ -200,7 +200,8 @@ export default function PathBooklet() {
     try {
       const r = await fetch(`/api/v4/booklet/list/${encodeURIComponent(slug)}`, { credentials: "include" });
       if (!r.ok) throw new Error(`http_${r.status}`);
-      const data = await r.json();
+      let data: any;
+      try { data = await r.json(); } catch { throw new Error("تعذّر قراءة ردّ الخادم — حاول مجدداً"); }
       setBooklets(Array.isArray(data?.booklets) ? data.booklets : []);
     } catch (e: any) {
       setLoadErr(String(e?.message ?? e));
@@ -211,7 +212,8 @@ export default function PathBooklet() {
     try {
       const r = await fetch(`/api/v4/booklet/${bookletId}`, { credentials: "include" });
       if (!r.ok) return;
-      const data = await r.json();
+      let data: any;
+      try { data = await r.json(); } catch { return; }
       if (data?.booklet) setDetails((prev) => ({ ...prev, [bookletId]: data.booklet as FullBooklet }));
     } catch {}
   }

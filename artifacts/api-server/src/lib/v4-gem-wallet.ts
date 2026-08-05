@@ -45,6 +45,7 @@ import {
   computePricingBreakdown,
   packageGems,
   usdToGems,
+  usdToGemsFixed,
   type PricingBreakdown,
 } from "./pricing-formula";
 import type { GemLedgerSource } from "./gem-ledger";
@@ -125,8 +126,8 @@ export async function getOrCreateV4Wallet(
         gemsBalance: w.gemsBalance,
         expiresAt: w.expiresAt,
         welcomeGiftClaimed: w.welcomeGiftClaimed,
-      };
-    }
+      }; // close return object
+    } // close if(staleIdempotency)
 
     // Already existed (lost the race or returning visitor) — read it.
     const [existing] = await tx
@@ -190,6 +191,19 @@ export async function canAffordV4Turn(
   // A turn always costs at least 1 gem (usdToGems floors at 1). Requiring a
   // strictly positive balance is what makes zero-balance == no-stream.
   const ok = balance >= 1 && withinGrace;
+
+  // Fallback: if subject wallet is empty, try the global welcome wallet
+  if (!ok && subjectId !== "_welcome") {
+    const welcome = await getOrCreateV4Wallet(userId, "_welcome");
+    const wBalance = welcome.gemsBalance ?? 0;
+    const wWithinGrace = welcome.expiresAt
+      ? now <= welcome.expiresAt.getTime() + V4_GRACE_DAYS * 24 * 60 * 60 * 1000
+      : true;
+    if (wBalance >= 1 && wWithinGrace) {
+      return { ok: true, balance: wBalance, noWallet: false, insufficient: false };
+    }
+  }
+
   return {
     ok,
     balance,
@@ -417,6 +431,8 @@ export type ChargeV4Opts = {
    * unlimited replies for free (the charge silently no-ops, balance unchanged).
    */
   drainIfInsufficient?: boolean;
+  /** When true, use the fixed 1000 gems/USD rate regardless of admin settings. */
+  useFixedRate?: boolean;
 };
 
 export type ChargeV4Result = {
@@ -444,7 +460,7 @@ const NO_OP: ChargeV4Result = { charged: false, gemsDeducted: 0, balanceAfter: n
  * empty or past its grace window — caller should refund any partial AI cost.
  */
 export async function chargeV4Ai(opts: ChargeV4Opts): Promise<ChargeV4Result> {
-  const gems = usdToGems(opts.costUsd);
+  const gems = opts.useFixedRate ? usdToGemsFixed(opts.costUsd) : usdToGems(opts.costUsd);
   if (gems <= 0) return NO_OP;
   if (!opts.requestId) {
     logger.error({ userId: opts.userId, source: opts.source }, "chargeV4Ai: missing requestId");
@@ -508,6 +524,33 @@ export async function chargeV4Ai(opts: ChargeV4Opts): Promise<ChargeV4Result> {
         .returning({ gemsBalance: studentGemWalletsTable.gemsBalance });
 
       if (!updated) {
+        // Fallback: try the global welcome wallet inline (same transaction, no recursion)
+        if (opts.subjectId !== "_welcome") {
+          const [welcomeUpdated] = await tx
+            .update(studentGemWalletsTable)
+            .set({
+              gemsBalance: sql`${studentGemWalletsTable.gemsBalance} - ${gems}`,
+              updatedAt: now,
+            })
+            .where(and(
+              eq(studentGemWalletsTable.userId, opts.userId),
+              eq(studentGemWalletsTable.subjectId, "_welcome"),
+              sql`${studentGemWalletsTable.gemsBalance} >= ${gems}`,
+              sql`(${studentGemWalletsTable.expiresAt} IS NULL OR ${now} <= ${graceCutoffSql})`,
+            ))
+            .returning({ gemsBalance: studentGemWalletsTable.gemsBalance });
+
+          if (welcomeUpdated) {
+            // Update the placeholder ledger row to reflect welcome wallet
+            await tx
+              .update(gemLedgerTable)
+              .set({ balanceAfter: welcomeUpdated.gemsBalance, subjectId: "_welcome", delta: -gems } as any)
+              .where(eq(gemLedgerTable.id, ledgerId));
+            const finalBalance = Number(welcomeUpdated.gemsBalance ?? 0);
+            return { charged: true, gemsDeducted: gems, balanceAfter: finalBalance, insufficient: false, noWallet: false };
+          }
+        }
+
         if (!opts.drainIfInsufficient) {
           throw new Error("V4_INSUFFICIENT_OR_EXPIRED");
         }
