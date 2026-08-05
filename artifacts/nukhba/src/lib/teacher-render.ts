@@ -271,8 +271,18 @@ function processProseLines(lines: string[]): string[] {
 
     const isAtxHeading = /^[ \t]{0,3}#{1,6}[ \t]/.test(line);
     if (isAtxHeading) {
+      // Weak teaching models (Flash-Lite tier) sprinkle markdown headings
+      // through conversational replies; they render as oversized h1/h2 blocks
+      // with gold underlines that clash with the chat-bubble aesthetic and
+      // make the text size look broken. Normalise every ATX heading to a bold
+      // paragraph: keeps the emphasis, kills the jarring size jump.
+      const text = cleanStrayMarkdownLine(line)
+        .replace(/^[ \t]{0,3}#{1,6}[ \t]+/, "") // drop the leading # fence
+        .replace(/[ \t]+#{1,6}[ \t]*$/, "")     // closed-ATX trailing hashes
+        .replace(/\*+/g, "")                     // strip nested emphasis asterisks
+        .trim();
       if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
-      out.push(cleanStrayMarkdownLine(line));
+      if (text) out.push(`**${text}**`);
       const nextLine = expanded[i + 1];
       if (nextLine !== undefined && nextLine.trim() !== "" && !/^[ \t]{0,3}#{1,6}[ \t]/.test(nextLine)) {
         out.push("");

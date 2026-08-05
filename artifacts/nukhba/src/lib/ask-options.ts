@@ -106,13 +106,31 @@ export function extractAskOptions(content: string): AskOptionsResult {
       .replace(/كلمةيعرفها/g, "كلمة يعرفها")
       .replace(/لازمأستخدم/g, "لازم أستخدم");
 
+  /**
+   * Strip stray markdown from question/option labels. Weak teaching models
+   * frequently wrap labels in `**bold**`, prefix them with `#` heading
+   * fences, or bake in list enumerators (`أ)`, `1.`, `-`) — all of which
+   * render as literal characters inside the plain-text buttons (ugly and
+   * duplicated with the أ/ب/ج badges). Backticks are kept: the option
+   * renderer turns them into inline-code chips.
+   */
+  const stripLabelMd = (s: string) =>
+    s
+      .replace(/^[ \t]{0,3}#{1,6}[ \t]+/, "")          // heading fence
+      .replace(/\*\*([\s\S]*?)\*\*/g, "$1")            // **bold**
+      .replace(/__([\s\S]*?)__/g, "$1")                // __bold__
+      .replace(/\*([^*\n]+)\*/g, "$1")                 // *italic*
+      .replace(/\*\*/g, "")                            // stray ** leftovers
+      .replace(/^([أ-يa-zA-Z][\)\.、:]|\d+[\)\.、]|[-–—•*+])[ \t]+/, "") // enumerator
+      .trim();
+
   // Decode HTML entities in question + each option so labels containing
   // tag examples (e.g. `وسم <p> (فقرة عادية)`) render readable text instead
   // of raw `&lt;p&gt;` escape sequences in the buttons.
-  let question = normalizeArabicText(normAr(decodeHtmlEntities(questionRaw)));
+  let question = normalizeArabicText(normAr(stripLabelMd(decodeHtmlEntities(questionRaw))));
   let options = rawOpts
     .filter((o) => !(/غير\s*ذلك/i.test(o) || /^other$/i.test(o)))
-    .map((o) => normalizeArabicText(normAr(decodeHtmlEntities(o))));
+    .map((o) => normalizeArabicText(normAr(stripLabelMd(decodeHtmlEntities(o)))));
 
   let strippedOut = cleanStripped(content);
 

@@ -116,7 +116,7 @@ export function OptionsQuestion({
       {question && (
         <div className="opt-question">
           <span className="opt-question-icon">؟</span>
-          <span className="opt-question-text">{question}</span>
+          <span className="opt-question-text">{renderOptionContent(question)}</span>
         </div>
       )}
       {!tooFewOptions && (
